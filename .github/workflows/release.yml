@@ -11,19 +11,16 @@ permissions:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            target: x86_64-linux
             artifact: ziew-linux-x64
-          - os: macos-latest
-            target: x86_64-macos
+          - os: macos-13
             artifact: ziew-macos-x64
           - os: macos-latest
-            target: aarch64-macos
             artifact: ziew-macos-arm64
           - os: windows-latest
-            target: x86_64-windows
             artifact: ziew-windows-x64.exe
 
     runs-on: ${{ matrix.os }}
@@ -37,7 +34,7 @@ jobs:
           version: 0.13.0
 
       - name: Install Linux dependencies
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
@@ -46,12 +43,13 @@ jobs:
         run: zig build -Doptimize=ReleaseSmall
 
       - name: Rename artifact (Unix)
-        if: matrix.os != 'windows-latest'
+        if: runner.os != 'Windows'
         run: mv zig-out/bin/ziew ${{ matrix.artifact }}
 
       - name: Rename artifact (Windows)
-        if: matrix.os == 'windows-latest'
-        run: mv zig-out/bin/ziew.exe ${{ matrix.artifact }}
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Move-Item zig-out/bin/ziew.exe ${{ matrix.artifact }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -62,6 +60,7 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    if: always() && contains(needs.build.result, 'success')
 
     steps:
       - name: Download all artifacts

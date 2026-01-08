@@ -14,6 +14,7 @@
 const std = @import("std");
 const fs = std.fs;
 const json = std.json;
+const utils = @import("utils.zig");
 
 /// Official plugins repo base URL
 pub const OFFICIAL_REPO = "https://raw.githubusercontent.com/ziews/plugins/main";
@@ -162,8 +163,9 @@ pub const PluginManager = struct {
     /// Initialize plugin manager with default plugins directory
     pub fn init(allocator: std.mem.Allocator) !Self {
         // Default to ~/.ziew/plugins/
-        const home = std.posix.getenv("HOME") orelse return error.NoHomeDir;
-        const plugins_dir = try std.fmt.allocPrint(allocator, "{s}/.ziew/plugins", .{home});
+        const ziew_dir = try utils.getZiewDir(allocator);
+        defer allocator.free(ziew_dir);
+        const plugins_dir = try utils.joinPath(allocator, ziew_dir, "plugins");
 
         return Self{
             .allocator = allocator,
@@ -189,8 +191,7 @@ pub const PluginManager = struct {
     /// Ensure plugins directory exists (creates parent dirs too)
     pub fn ensurePluginsDir(self: *Self) !void {
         // First ensure ~/.ziew/ exists
-        const home = std.posix.getenv("HOME") orelse return error.NoHomeDir;
-        const ziew_dir = try std.fmt.allocPrint(self.allocator, "{s}/.ziew", .{home});
+        const ziew_dir = try utils.getZiewDir(self.allocator);
         defer self.allocator.free(ziew_dir);
 
         fs.makeDirAbsolute(ziew_dir) catch |err| {

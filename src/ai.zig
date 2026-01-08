@@ -23,6 +23,7 @@
 //!   - Phi-3 mini 3.8B (~2GB)
 
 const std = @import("std");
+const utils = @import("utils.zig");
 
 const c = @cImport({
     @cInclude("llama.h");
@@ -283,8 +284,9 @@ pub const Ai = struct {
 
 /// Get the models directory path (~/.ziew/models/)
 pub fn getModelsDir(allocator: std.mem.Allocator) ![]const u8 {
-    const home = std.posix.getenv("HOME") orelse return error.NoHomeDir;
-    return std.fmt.allocPrint(allocator, "{s}/.ziew/models", .{home});
+    const ziew_dir = try utils.getZiewDir(allocator);
+    defer allocator.free(ziew_dir);
+    return utils.joinPath(allocator, ziew_dir, "models");
 }
 
 /// Ensure the models directory exists
@@ -293,8 +295,7 @@ pub fn ensureModelsDir(allocator: std.mem.Allocator) !void {
     defer allocator.free(models_dir);
 
     // Create ~/.ziew if it doesn't exist
-    const home = std.posix.getenv("HOME") orelse return error.NoHomeDir;
-    const ziew_dir = try std.fmt.allocPrint(allocator, "{s}/.ziew", .{home});
+    const ziew_dir = try utils.getZiewDir(allocator);
     defer allocator.free(ziew_dir);
 
     std.fs.makeDirAbsolute(ziew_dir) catch |err| {

@@ -4,6 +4,7 @@
 //! Voices are stored in ~/.ziew/voices/
 
 const std = @import("std");
+const utils = @import("utils.zig");
 
 pub const PiperError = error{
     PiperNotFound,
@@ -160,14 +161,20 @@ pub const Piper = struct {
 
 /// Get the Piper binary path
 pub fn getPiperPath(allocator: std.mem.Allocator) ![]const u8 {
-    const home = std.posix.getenv("HOME") orelse return error.NoHomeDir;
-    return std.fmt.allocPrint(allocator, "{s}/.ziew/bin/piper/piper", .{home});
+    const ziew_dir = try utils.getZiewDir(allocator);
+    defer allocator.free(ziew_dir);
+    const bin_dir = try utils.joinPath(allocator, ziew_dir, "bin");
+    defer allocator.free(bin_dir);
+    const piper_dir = try utils.joinPath(allocator, bin_dir, "piper");
+    defer allocator.free(piper_dir);
+    return utils.joinPath(allocator, piper_dir, "piper");
 }
 
 /// Get the voices directory path
 pub fn getVoicesDir(allocator: std.mem.Allocator) ![]const u8 {
-    const home = std.posix.getenv("HOME") orelse return error.NoHomeDir;
-    return std.fmt.allocPrint(allocator, "{s}/.ziew/voices", .{home});
+    const ziew_dir = try utils.getZiewDir(allocator);
+    defer allocator.free(ziew_dir);
+    return utils.joinPath(allocator, ziew_dir, "voices");
 }
 
 /// Find a default voice

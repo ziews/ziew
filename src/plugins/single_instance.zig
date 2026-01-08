@@ -9,6 +9,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const posix = std.posix;
+const utils = @import("../utils.zig");
 
 pub const SingleInstance = struct {
     allocator: std.mem.Allocator,
@@ -21,8 +22,9 @@ pub const SingleInstance = struct {
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator, app_id: []const u8) !Self {
-        // Create socket path in /tmp or XDG_RUNTIME_DIR
-        const runtime_dir = std.posix.getenv("XDG_RUNTIME_DIR") orelse "/tmp";
+        // Create socket path in runtime directory
+        const runtime_dir = try utils.getRuntimeDir(allocator);
+        defer allocator.free(runtime_dir);
         const socket_path = try std.fmt.allocPrint(allocator, "{s}/ziew-{s}.sock", .{ runtime_dir, app_id });
 
         return Self{
