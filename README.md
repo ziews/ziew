@@ -154,9 +154,11 @@ Total: 1.4 MB (all platforms combined)
 - [ ] `ziew init` / `ziew dev` / `ziew ship` CLI
 
 **v0.2 — Scripting & AI**
-- [ ] LuaJIT scripting layer (optional)
-- [ ] `ziew.ai` — local LLM inference (llama.cpp)
-- [ ] `ziew.ai` — speech-to-text (whisper.cpp)
+- [x] LuaJIT scripting layer (`-Dlua=true`)
+- [x] `ziew.ai.complete()` — text generation (llama.cpp)
+- [x] `ziew.ai.stream()` — streaming tokens
+- [x] JS bridge for `ziew.lua.call()` and `ziew.ai.*`
+- [ ] `ziew.ai.transcribe()` — speech-to-text (whisper.cpp)
 
 **Future**
 - [ ] Plugin system

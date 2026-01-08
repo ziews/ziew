@@ -142,6 +142,24 @@ pub fn build(b: *std.Build) void {
         run_lua.step.dependOn(b.getInstallStep());
         const lua_step = b.step("lua", "Run the Lua example");
         lua_step.dependOn(&run_lua.step);
+
+        // Lua webview example
+        const lua_web_exe = b.addExecutable(.{
+            .name = "lua-web",
+            .root_source_file = b.path("examples/lua-web/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        lua_web_exe.root_module.addImport("ziew", &lib.root_module);
+        lua_web_exe.addIncludePath(webview_dep.path("core/include"));
+        lua_web_exe.linkLibrary(webview_lib);
+        lua_web_exe.linkSystemLibrary("luajit-5.1");
+        b.installArtifact(lua_web_exe);
+
+        const run_lua_web = b.addRunArtifact(lua_web_exe);
+        run_lua_web.step.dependOn(b.getInstallStep());
+        const lua_web_step = b.step("lua-web", "Run the Lua webview example");
+        lua_web_step.dependOn(&run_lua_web.step);
     }
 
     // AI example (only when ai is enabled)

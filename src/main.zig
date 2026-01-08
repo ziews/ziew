@@ -12,6 +12,7 @@ pub const plugin = @import("plugin.zig");
 
 // Lua module - optional, build with -Dlua=true
 pub const lua = @import("lua.zig");
+pub const lua_bridge = @import("lua_bridge.zig");
 
 // AI module - optional, build with -Dai=true
 pub const ai = @import("ai.zig");
