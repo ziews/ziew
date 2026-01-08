@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://ziew.ai/assets/ziew.png" alt="Ziew" width="120" height="120">
+  <img src="https://ziew.sh/assets/ziew.png" alt="Ziew" width="120" height="120">
 </p>
 
 <h1 align="center">Ziew</h1>
@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <a href="https://ziew.ai">Website</a> •
+  <a href="https://ziew.sh">Website</a> •
   <a href="#installation">Installation</a> •
   <a href="#quick-start">Quick Start</a> •
   <a href="#why-ziew">Why Ziew</a>
@@ -166,7 +166,7 @@ Total: 4.0 MB (all platforms combined)
 
 ## Links
 
-- **Website:** [ziew.ai](https://ziew.ai)
+- **Website:** [ziew.sh](https://ziew.sh)
 - **Install:** [ziew.sh/install](https://ziew.sh/install)
 - **GitHub:** [github.com/ziews/ziew](https://github.com/ziews/ziew)
 
