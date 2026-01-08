@@ -16,6 +16,8 @@ jobs:
         include:
           - os: ubuntu-latest
             artifact: ziew-linux-x64
+          - os: ubuntu-24.04-arm
+            artifact: ziew-linux-arm64
           - os: macos-14
             artifact: ziew-macos-x64
           - os: macos-latest
