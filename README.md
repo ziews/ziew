@@ -22,14 +22,14 @@
 
 <p align="center">
   <a href="https://ziew.sh">Website</a> •
-  <a href="#installation">Installation</a> •
-  <a href="#quick-start">Quick Start</a> •
-  <a href="#why-ziew">Why Ziew</a>
+  <a href="https://ziew.sh/docs">Docs</a> •
+  <a href="https://ziew.sh/plugins">Plugins</a> •
+  <a href="#installation">Installation</a>
 </p>
 
 ---
 
-> ⚠️ **Early Alpha** — APIs will change. Not production-ready.
+> **Early Alpha** — APIs will change. Not production-ready.
 
 ## The Post-Electron Era
 
@@ -46,6 +46,7 @@ That's **680x smaller** than Electron.
 - **Tiny binaries** — 220KB hello world, real apps under 2MB
 - **Native webviews** — Uses system WebView (WebKit, Edge WebView2)
 - **No bundled browser** — Unlike Electron's 150MB Chromium
+- **Plugin system** — SQLite, notifications, hotkeys, gamepad, serial, and more
 - **Local AI** — First-class llama.cpp bindings + Piper TTS
 - **Lua scripting** — Optional LuaJIT for custom backend logic (+~300KB)
 - **Cross-compilation** — `zig build -Dtarget=x86_64-windows` just works
@@ -63,11 +64,10 @@ const data = await ziew.fs.readFile('./config.json');
 // Local AI - runs on device, no API keys
 const summary = await ziew.ai.complete('Summarize this...');
 
-// Stream responses with TTS
+// Stream responses
 for await (const token of ziew.ai.stream(prompt)) {
   output.textContent += token;
 }
-await ziew.ai.speak('Hello world');  // Text-to-speech
 ```
 
 **Need custom logic?** Add Lua scripting (~300KB overhead):
@@ -85,6 +85,29 @@ end
 // Call Lua from JavaScript
 const result = await ziew.lua.call('processDocument', './report.md');
 ```
+
+## Plugins
+
+Enable native capabilities at build time. Only enabled plugins add to binary size.
+
+```bash
+zig build -Dsqlite -Dnotify -Dhotkeys
+```
+
+| Plugin | Flag | Description |
+|--------|------|-------------|
+| **sqlite** | `-Dsqlite` | Embedded SQLite database |
+| **notify** | `-Dnotify` | System notifications |
+| **keychain** | `-Dkeychain` | Secure credential storage |
+| **hotkeys** | `-Dhotkeys` | Global keyboard shortcuts |
+| **gamepad** | `-Dgamepad` | Game controller input |
+| **serial** | `-Dserial` | Serial port communication |
+| **ai** | `-Dai` | Local LLM (llama.cpp) |
+| **whisper** | `-Dwhisper` | Speech-to-text |
+| **piper** | `-Dpiper` | Text-to-speech |
+| **lua** | `-Dlua` | LuaJIT scripting |
+
+See [PLUGINS.md](PLUGINS.md) for full documentation.
 
 ## Platform Support
 
@@ -109,6 +132,12 @@ irm ziew.sh/install.ps1 | iex
 **Linux prerequisites:**
 ```bash
 sudo apt install libgtk-3-dev libwebkit2gtk-4.1-dev
+
+# For plugins (optional)
+sudo apt install libsqlite3-dev    # sqlite
+sudo apt install libnotify-dev     # notify
+sudo apt install libsecret-1-dev   # keychain
+sudo apt install libx11-dev        # hotkeys
 ```
 
 **Build:**
@@ -127,7 +156,17 @@ cd myapp
 ziew dev
 ```
 
-## Ship Everywhere (Coming Soon)
+### With Templates
+
+```bash
+# Game with Phaser
+ziew init mygame --template=phaser
+
+# With CSS framework
+ziew init myapp --style=pico
+```
+
+## Ship Everywhere
 
 One command to build for all platforms:
 
@@ -144,34 +183,11 @@ Building for all platforms...
 Total: 1.4 MB (all platforms combined)
 ```
 
-> Note: `ziew ship` always uses optimized release builds for smallest binary sizes.
-
-## Roadmap
-
-**v0.1 — Foundation**
-- [x] Cross-platform webview (GTK/WebKit, Cocoa/WebKit, Edge WebView2)
-- [x] JS bridge injection
-- [ ] Built-in JS APIs (`ziew.fs`, `ziew.shell`, `ziew.dialog`)
-- [ ] `ziew init` / `ziew dev` / `ziew ship` CLI
-
-**v0.2 — Scripting & AI**
-- [x] LuaJIT scripting layer (`-Dlua=true`)
-- [x] `ziew.ai.complete()` — text generation (llama.cpp)
-- [x] `ziew.ai.stream()` — streaming tokens
-- [x] JS bridge for `ziew.lua.call()` and `ziew.ai.*`
-- [x] `ziew.ai.speak()` — text-to-speech (Piper)
-- [x] Chatbot example with streaming TTS
-- [ ] `ziew.ai.transcribe()` — speech-to-text (whisper.cpp)
-
-**Future**
-- [ ] Plugin system
-- [ ] TypeScript definitions generation
-- [ ] `ziew docs` — API documentation generation
-
 ## Links
 
 - **Website:** [ziew.sh](https://ziew.sh)
-- **Install:** [ziew.sh/install](https://ziew.sh/install)
+- **Docs:** [ziew.sh/docs](https://ziew.sh/docs)
+- **Plugins:** [ziew.sh/plugins](https://ziew.sh/plugins)
 - **GitHub:** [github.com/ziews/ziew](https://github.com/ziews/ziew)
 
 ## License

@@ -10,6 +10,14 @@ pub fn build(b: *std.Build) void {
     const enable_whisper = b.option(bool, "whisper", "Enable Whisper STT support (requires whisper.cpp)") orelse false;
     const enable_piper = b.option(bool, "piper", "Enable Piper TTS support (uses CLI, no deps)") orelse false;
 
+    // Plugin options
+    const enable_notify = b.option(bool, "notify", "Enable notifications plugin (requires libnotify-dev)") orelse false;
+    const enable_sqlite = b.option(bool, "sqlite", "Enable SQLite plugin (requires libsqlite3-dev)") orelse false;
+    const enable_keychain = b.option(bool, "keychain", "Enable keychain plugin (requires libsecret-1-dev)") orelse false;
+    const enable_hotkeys = b.option(bool, "hotkeys", "Enable global hotkeys plugin (requires libx11-dev)") orelse false;
+    const enable_gamepad = b.option(bool, "gamepad", "Enable gamepad plugin") orelse false;
+    const enable_serial = b.option(bool, "serial", "Enable serial port plugin") orelse false;
+
     // Get home directory for local lib/include paths
     const home = std.posix.getenv("HOME") orelse "/tmp";
 
@@ -100,6 +108,46 @@ pub fn build(b: *std.Build) void {
     // Piper TTS support (optional - no linking needed, uses CLI)
     if (enable_piper) {
         lib.root_module.addCMacro("HAS_PIPER", "1");
+    }
+
+    // Plugin: Notifications (libnotify)
+    if (enable_notify) {
+        if (os == .linux) {
+            lib.linkSystemLibrary("libnotify");
+        }
+        lib.root_module.addCMacro("HAS_NOTIFY", "1");
+    }
+
+    // Plugin: SQLite
+    if (enable_sqlite) {
+        lib.linkSystemLibrary("sqlite3");
+        lib.root_module.addCMacro("HAS_SQLITE", "1");
+    }
+
+    // Plugin: Keychain (libsecret on Linux)
+    if (enable_keychain) {
+        if (os == .linux) {
+            lib.linkSystemLibrary("libsecret-1");
+        }
+        lib.root_module.addCMacro("HAS_KEYCHAIN", "1");
+    }
+
+    // Plugin: Global Hotkeys (X11 on Linux)
+    if (enable_hotkeys) {
+        if (os == .linux) {
+            lib.linkSystemLibrary("x11");
+        }
+        lib.root_module.addCMacro("HAS_HOTKEYS", "1");
+    }
+
+    // Plugin: Gamepad (evdev on Linux, no extra deps)
+    if (enable_gamepad) {
+        lib.root_module.addCMacro("HAS_GAMEPAD", "1");
+    }
+
+    // Plugin: Serial (POSIX termios, no extra deps)
+    if (enable_serial) {
+        lib.root_module.addCMacro("HAS_SERIAL", "1");
     }
 
     b.installArtifact(lib);
