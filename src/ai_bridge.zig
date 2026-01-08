@@ -1,6 +1,7 @@
 //! AI Bridge - Connects AI module to webview
 //!
-//! Provides native bindings for ziew.ai.complete() and ziew.ai.stream()
+//! Provides native bindings for ziew.ai.complete(), ziew.ai.stream(), etc.
+//! Models are auto-detected from ~/.ziew/models/
 
 const std = @import("std");
 const webview = @import("webview.zig");
@@ -11,52 +12,126 @@ pub const AiBridge = struct {
     allocator: std.mem.Allocator,
     ai_instance: ?*ai.Ai,
     window: webview.Window,
+    auto_load_attempted: bool,
 
     const Self = @This();
 
-    /// Initialize AI bridge with a loaded model
+    /// Initialize AI bridge with a specific model
     pub fn init(allocator: std.mem.Allocator, window: webview.Window, model_path: []const u8) !Self {
         const ai_instance = try allocator.create(ai.Ai);
         ai_instance.* = try ai.Ai.init(allocator, model_path);
 
-        const bridge = Self{
+        var bridge = Self{
             .allocator = allocator,
             .ai_instance = ai_instance,
             .window = window,
+            .auto_load_attempted = true,
         };
 
         // Bind the native functions
-        try window.bind("__ziew_ai_complete", completeCallback, @ptrCast(&bridge));
-        try window.bind("__ziew_ai_stream", streamCallback, @ptrCast(&bridge));
+        try bridge.bindFunctions();
 
         return bridge;
     }
 
-    /// Initialize AI bridge without a model (for lazy loading)
-    pub fn initLazy(allocator: std.mem.Allocator, window: webview.Window) !Self {
-        const bridge = Self{
+    /// Initialize AI bridge with auto-detection from ~/.ziew/models/
+    pub fn initAuto(allocator: std.mem.Allocator, window: webview.Window) !Self {
+        // Ensure models directory exists
+        ai.ensureModelsDir(allocator) catch {};
+
+        var bridge = Self{
             .allocator = allocator,
             .ai_instance = null,
             .window = window,
+            .auto_load_attempted = false,
         };
 
-        // Bind the native functions
-        try window.bind("__ziew_ai_complete", completeCallback, @ptrCast(&bridge));
-        try window.bind("__ziew_ai_stream", streamCallback, @ptrCast(&bridge));
+        // Try to auto-load default model
+        if (ai.findDefaultModel(allocator) catch null) |model_path| {
+            defer allocator.free(model_path);
+            std.debug.print("[ai] Auto-loading model: {s}\n", .{model_path});
 
+            const ai_instance = allocator.create(ai.Ai) catch null;
+            if (ai_instance) |instance| {
+                instance.* = ai.Ai.init(allocator, model_path) catch {
+                    allocator.destroy(instance);
+                    std.debug.print("[ai] Failed to load model\n", .{});
+                    bridge.auto_load_attempted = true;
+                    try bridge.bindFunctions();
+                    return bridge;
+                };
+                bridge.ai_instance = instance;
+                std.debug.print("[ai] Model loaded successfully\n", .{});
+            }
+        } else {
+            std.debug.print("[ai] No models found in ~/.ziew/models/\n", .{});
+        }
+
+        bridge.auto_load_attempted = true;
+        try bridge.bindFunctions();
         return bridge;
     }
 
-    /// Load a model (for lazy initialization)
-    pub fn loadModel(self: *Self, model_path: []const u8) !void {
+    /// Initialize AI bridge without loading any model (fully lazy)
+    pub fn initLazy(allocator: std.mem.Allocator, window: webview.Window) !Self {
+        var bridge = Self{
+            .allocator = allocator,
+            .ai_instance = null,
+            .window = window,
+            .auto_load_attempted = false,
+        };
+
+        try bridge.bindFunctions();
+        return bridge;
+    }
+
+    /// Bind all native functions to the webview
+    fn bindFunctions(self: *Self) !void {
+        try self.window.bind("__ziew_ai_complete", completeCallback, @ptrCast(self));
+        try self.window.bind("__ziew_ai_stream", streamCallback, @ptrCast(self));
+        try self.window.bind("__ziew_ai_load", loadCallback, @ptrCast(self));
+        try self.window.bind("__ziew_ai_models", modelsCallback, @ptrCast(self));
+    }
+
+    /// Load a model by name or path
+    pub fn loadModel(self: *Self, model_name: []const u8) !void {
+        // Get full path (handles both names and paths)
+        const model_path = try ai.getModelPath(self.allocator, model_name);
+        defer self.allocator.free(model_path);
+
+        // Unload existing model
         if (self.ai_instance) |instance| {
             instance.deinit();
             self.allocator.destroy(instance);
+            self.ai_instance = null;
         }
 
+        // Load new model
         const ai_instance = try self.allocator.create(ai.Ai);
         ai_instance.* = try ai.Ai.init(self.allocator, model_path);
         self.ai_instance = ai_instance;
+    }
+
+    /// Try to auto-load a model if none is loaded
+    fn tryAutoLoad(self: *Self) bool {
+        if (self.ai_instance != null) return true;
+        if (self.auto_load_attempted) return false;
+
+        self.auto_load_attempted = true;
+
+        if (ai.findDefaultModel(self.allocator) catch null) |model_path| {
+            defer self.allocator.free(model_path);
+            std.debug.print("[ai] Auto-loading model: {s}\n", .{model_path});
+
+            const ai_instance = self.allocator.create(ai.Ai) catch return false;
+            ai_instance.* = ai.Ai.init(self.allocator, model_path) catch {
+                self.allocator.destroy(ai_instance);
+                return false;
+            };
+            self.ai_instance = ai_instance;
+            return true;
+        }
+        return false;
     }
 
     /// Clean up resources
@@ -65,6 +140,105 @@ pub const AiBridge = struct {
             instance.deinit();
             self.allocator.destroy(instance);
         }
+    }
+
+    /// Callback for ziew.ai.load()
+    fn loadCallback(seq: [*c]const u8, req: [*c]const u8, arg: ?*anyopaque) callconv(.c) void {
+        const self: *Self = @ptrCast(@alignCast(arg));
+        self.handleLoad(seq, req) catch |err| {
+            self.returnError(seq, err);
+        };
+    }
+
+    fn handleLoad(self: *Self, seq: [*c]const u8, req: [*c]const u8) !void {
+        _ = seq;
+        const req_slice = std.mem.span(req);
+
+        const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, req_slice, .{}) catch {
+            return;
+        };
+        defer parsed.deinit();
+
+        const root = parsed.value.object;
+        const id = root.get("id") orelse return;
+        const id_str = switch (id) {
+            .string => |s| s,
+            else => return,
+        };
+
+        // Get model name (optional - if not provided, auto-load)
+        const model_name = if (root.get("model")) |m| switch (m) {
+            .string => |s| s,
+            else => null,
+        } else null;
+
+        if (model_name) |name| {
+            self.loadModel(name) catch |err| {
+                const msg = switch (err) {
+                    error.ModelLoadFailed => "Failed to load model",
+                    error.FileNotFound => "Model not found",
+                    else => "Load error",
+                };
+                return self.rejectWithId(id_str, msg);
+            };
+            self.resolveWithId(id_str, "true");
+        } else {
+            // Auto-load
+            if (self.tryAutoLoad()) {
+                self.resolveWithId(id_str, "true");
+            } else {
+                self.rejectWithId(id_str, "No models found in ~/.ziew/models/");
+            }
+        }
+    }
+
+    /// Callback for ziew.ai.models()
+    fn modelsCallback(seq: [*c]const u8, req: [*c]const u8, arg: ?*anyopaque) callconv(.c) void {
+        const self: *Self = @ptrCast(@alignCast(arg));
+        self.handleModels(seq, req) catch |err| {
+            self.returnError(seq, err);
+        };
+    }
+
+    fn handleModels(self: *Self, seq: [*c]const u8, req: [*c]const u8) !void {
+        _ = seq;
+        const req_slice = std.mem.span(req);
+
+        const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, req_slice, .{}) catch {
+            return;
+        };
+        defer parsed.deinit();
+
+        const root = parsed.value.object;
+        const id = root.get("id") orelse return;
+        const id_str = switch (id) {
+            .string => |s| s,
+            else => return,
+        };
+
+        // List models
+        const models = ai.listModels(self.allocator) catch {
+            return self.rejectWithId(id_str, "Failed to list models");
+        };
+        defer {
+            for (models) |m| self.allocator.free(m);
+            self.allocator.free(models);
+        }
+
+        // Build JSON array
+        var json = std.ArrayList(u8).init(self.allocator);
+        defer json.deinit();
+
+        try json.appendSlice("[");
+        for (models, 0..) |model, i| {
+            if (i > 0) try json.appendSlice(",");
+            try json.appendSlice("\\\"");
+            try json.appendSlice(model);
+            try json.appendSlice("\\\"");
+        }
+        try json.appendSlice("]");
+
+        self.resolveJsonWithId(id_str, json.items);
     }
 
     /// Callback for ziew.ai.complete()
@@ -108,9 +282,12 @@ pub const AiBridge = struct {
             else => 256,
         } else 256;
 
+        // Try auto-load if no model is loaded
+        _ = self.tryAutoLoad();
+
         // Check if AI is loaded
         const ai_instance = self.ai_instance orelse {
-            return self.rejectWithId(id_str, "No model loaded - call ziew.ai.load() first");
+            return self.rejectWithId(id_str, "No model found. Place a .gguf file in ~/.ziew/models/");
         };
 
         // Generate completion
@@ -175,9 +352,12 @@ pub const AiBridge = struct {
             else => 256,
         } else 256;
 
+        // Try auto-load if no model is loaded
+        _ = self.tryAutoLoad();
+
         // Check if AI is loaded
         const ai_instance = self.ai_instance orelse {
-            self.streamError(id_str, "No model loaded");
+            self.streamError(id_str, "No model found. Place a .gguf file in ~/.ziew/models/");
             return;
         };
 
@@ -247,6 +427,18 @@ pub const AiBridge = struct {
             self.allocator,
             "ziew._reject(\"{s}\", \"{s}\")",
             .{ id, err_msg },
+        ) catch return;
+        defer self.allocator.free(js);
+
+        self.window.eval(js) catch {};
+    }
+
+    /// Helper: resolve a promise with JSON result (no extra escaping)
+    fn resolveJsonWithId(self: *Self, id: []const u8, json_result: []const u8) void {
+        const js = std.fmt.allocPrintZ(
+            self.allocator,
+            "ziew._resolve(\"{s}\", {s})",
+            .{ id, json_result },
         ) catch return;
         defer self.allocator.free(js);
 

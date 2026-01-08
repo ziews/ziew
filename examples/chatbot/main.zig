@@ -3,7 +3,8 @@
 //! Demonstrates a simple chat interface using ziew.ai.stream()
 //! Build with: zig build -Dai=true chatbot
 //!
-//! Usage: ./zig-out/bin/chatbot <path-to-model.gguf>
+//! Models are auto-detected from ~/.ziew/models/
+//! Just place a .gguf file there and run the app!
 
 const std = @import("std");
 const ziew = @import("ziew");
@@ -12,20 +13,6 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-
-    // Get model path from args
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
-
-    if (args.len < 2) {
-        std.debug.print("Usage: chatbot <path-to-model.gguf>\n", .{});
-        std.debug.print("\nDownload a model from HuggingFace:\n", .{});
-        std.debug.print("  https://huggingface.co/models?search=gguf\n", .{});
-        return;
-    }
-
-    const model_path = args[1];
-    std.debug.print("[chatbot] Loading model: {s}\n", .{model_path});
 
     // Create the app window
     var app = try ziew.App.init(allocator, .{
@@ -36,14 +23,10 @@ pub fn main() !void {
     });
     defer app.deinit();
 
-    // Initialize AI bridge with the model
-    var ai_bridge = ziew.ai_bridge.AiBridge.init(allocator, app.window, model_path) catch |err| {
-        std.debug.print("[chatbot] Failed to load model: {any}\n", .{err});
-        return;
-    };
+    // Initialize AI bridge with auto-detection
+    // Will automatically load the first .gguf model found in ~/.ziew/models/
+    var ai_bridge = try ziew.ai_bridge.AiBridge.initAuto(allocator, app.window);
     defer ai_bridge.deinit();
-
-    std.debug.print("[chatbot] Model loaded! Opening window...\n", .{});
 
     // Load the chat HTML
     app.loadHtml(chat_html);
@@ -68,6 +51,24 @@ const chat_html: [:0]const u8 =
     \\      display: flex;
     \\      flex-direction: column;
     \\    }
+    \\    #header {
+    \\      padding: 0.75rem 1rem;
+    \\      background: #16213e;
+    \\      border-bottom: 1px solid #333;
+    \\      display: flex;
+    \\      justify-content: space-between;
+    \\      align-items: center;
+    \\    }
+    \\    #header h1 {
+    \\      font-size: 1rem;
+    \\      background: linear-gradient(135deg, #00d4ff, #7b2ff7);
+    \\      -webkit-background-clip: text;
+    \\      -webkit-text-fill-color: transparent;
+    \\    }
+    \\    #model-info {
+    \\      font-size: 0.75rem;
+    \\      color: #666;
+    \\    }
     \\    #messages {
     \\      flex: 1;
     \\      overflow-y: auto;
@@ -85,6 +86,13 @@ const chat_html: [:0]const u8 =
     \\    }
     \\    .assistant {
     \\      background: #22223b;
+    \\    }
+    \\    .system {
+    \\      background: transparent;
+    \\      color: #666;
+    \\      font-size: 0.875rem;
+    \\      text-align: center;
+    \\      max-width: 100%;
     \\    }
     \\    #input-area {
     \\      display: flex;
@@ -113,18 +121,14 @@ const chat_html: [:0]const u8 =
     \\    }
     \\    button:hover { background: #5a5e79; }
     \\    button:disabled { opacity: 0.5; cursor: not-allowed; }
-    \\    .status {
-    \\      text-align: center;
-    \\      padding: 0.5rem;
-    \\      color: #888;
-    \\      font-size: 0.875rem;
-    \\    }
     \\  </style>
     \\</head>
     \\<body>
-    \\  <div id="messages">
-    \\    <div class="status">Type a message to start chatting!</div>
+    \\  <div id="header">
+    \\    <h1>Ziew Chatbot</h1>
+    \\    <span id="model-info">Loading...</span>
     \\  </div>
+    \\  <div id="messages"></div>
     \\  <div id="input-area">
     \\    <input type="text" id="prompt" placeholder="Type your message..." autofocus>
     \\    <button id="send">Send</button>
@@ -134,6 +138,7 @@ const chat_html: [:0]const u8 =
     \\    const messages = document.getElementById('messages');
     \\    const promptInput = document.getElementById('prompt');
     \\    const sendBtn = document.getElementById('send');
+    \\    const modelInfo = document.getElementById('model-info');
     \\
     \\    let isGenerating = false;
     \\
@@ -146,13 +151,27 @@ const chat_html: [:0]const u8 =
     \\      return div;
     \\    }
     \\
+    \\    async function init() {
+    \\      // Check for available models
+    \\      try {
+    \\        const models = await ziew.ai.models();
+    \\        if (models.length === 0) {
+    \\          modelInfo.textContent = 'No models found';
+    \\          addMessage('No models found in ~/.ziew/models/', 'system');
+    \\          addMessage('Place a .gguf file there to start chatting!', 'system');
+    \\        } else {
+    \\          modelInfo.textContent = models[0];
+    \\          addMessage('Model loaded: ' + models[0], 'system');
+    \\        }
+    \\      } catch (e) {
+    \\        modelInfo.textContent = 'AI not available';
+    \\        addMessage('AI not available - build with -Dai=true', 'system');
+    \\      }
+    \\    }
+    \\
     \\    async function sendMessage() {
     \\      const prompt = promptInput.value.trim();
     \\      if (!prompt || isGenerating) return;
-    \\
-    \\      // Clear initial status
-    \\      const status = messages.querySelector('.status');
-    \\      if (status) status.remove();
     \\
     \\      // Add user message
     \\      addMessage(prompt, 'user');
@@ -185,10 +204,8 @@ const chat_html: [:0]const u8 =
     \\      if (e.key === 'Enter') sendMessage();
     \\    });
     \\
-    \\    // Check if AI is available
-    \\    if (!ziew.ai.available()) {
-    \\      addMessage('AI not available. Build with -Dai=true', 'assistant');
-    \\    }
+    \\    // Initialize on load
+    \\    init();
     \\  </script>
     \\</body>
     \\</html>

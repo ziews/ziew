@@ -275,8 +275,107 @@ pub const Ai = struct {
     }
 };
 
-/// Get default model path
-pub fn getDefaultModelPath(allocator: std.mem.Allocator) ![]const u8 {
+/// Get the models directory path (~/.ziew/models/)
+pub fn getModelsDir(allocator: std.mem.Allocator) ![]const u8 {
     const home = std.posix.getenv("HOME") orelse return error.NoHomeDir;
     return std.fmt.allocPrint(allocator, "{s}/.ziew/models", .{home});
+}
+
+/// Ensure the models directory exists
+pub fn ensureModelsDir(allocator: std.mem.Allocator) !void {
+    const models_dir = try getModelsDir(allocator);
+    defer allocator.free(models_dir);
+
+    // Create ~/.ziew if it doesn't exist
+    const home = std.posix.getenv("HOME") orelse return error.NoHomeDir;
+    const ziew_dir = try std.fmt.allocPrint(allocator, "{s}/.ziew", .{home});
+    defer allocator.free(ziew_dir);
+
+    std.fs.makeDirAbsolute(ziew_dir) catch |err| {
+        if (err != error.PathAlreadyExists) return err;
+    };
+
+    // Create ~/.ziew/models if it doesn't exist
+    std.fs.makeDirAbsolute(models_dir) catch |err| {
+        if (err != error.PathAlreadyExists) return err;
+    };
+}
+
+/// List available models in ~/.ziew/models/
+/// Returns a list of .gguf filenames (caller must free each string and the slice)
+pub fn listModels(allocator: std.mem.Allocator) ![][]const u8 {
+    const models_dir = try getModelsDir(allocator);
+    defer allocator.free(models_dir);
+
+    var models = std.ArrayList([]const u8).init(allocator);
+    errdefer {
+        for (models.items) |m| allocator.free(m);
+        models.deinit();
+    }
+
+    const dir = std.fs.openDirAbsolute(models_dir, .{ .iterate = true }) catch |err| {
+        if (err == error.FileNotFound) {
+            return models.toOwnedSlice();
+        }
+        return err;
+    };
+    defer dir.close();
+
+    var iter = dir.iterate();
+    while (try iter.next()) |entry| {
+        if (entry.kind == .file) {
+            const name = entry.name;
+            if (std.mem.endsWith(u8, name, ".gguf")) {
+                const copy = try allocator.dupe(u8, name);
+                try models.append(copy);
+            }
+        }
+    }
+
+    return models.toOwnedSlice();
+}
+
+/// Find the default model (first .gguf file in ~/.ziew/models/)
+/// Returns the full path to the model, or null if none found
+pub fn findDefaultModel(allocator: std.mem.Allocator) !?[]const u8 {
+    const models = try listModels(allocator);
+    defer {
+        for (models) |m| allocator.free(m);
+        allocator.free(models);
+    }
+
+    if (models.len == 0) {
+        return null;
+    }
+
+    // Return full path to first model
+    const models_dir = try getModelsDir(allocator);
+    defer allocator.free(models_dir);
+
+    return std.fmt.allocPrint(allocator, "{s}/{s}", .{ models_dir, models[0] });
+}
+
+/// Get full path for a model by name
+/// If name contains '/', treats it as a path, otherwise looks in ~/.ziew/models/
+pub fn getModelPath(allocator: std.mem.Allocator, name: []const u8) ![]const u8 {
+    // If it's already a path, return as-is
+    if (std.mem.indexOf(u8, name, "/") != null) {
+        return allocator.dupe(u8, name);
+    }
+
+    // Otherwise, look in models directory
+    const models_dir = try getModelsDir(allocator);
+    defer allocator.free(models_dir);
+
+    // Add .gguf extension if not present
+    if (std.mem.endsWith(u8, name, ".gguf")) {
+        return std.fmt.allocPrint(allocator, "{s}/{s}", .{ models_dir, name });
+    } else {
+        return std.fmt.allocPrint(allocator, "{s}/{s}.gguf", .{ models_dir, name });
+    }
+}
+
+/// Deprecated: use getModelsDir instead
+pub fn getDefaultModelPath(allocator: std.mem.Allocator) ![]const u8 {
+    return getModelsDir(allocator);
 }

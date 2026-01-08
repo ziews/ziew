@@ -66,9 +66,39 @@ pub const ziew_js: [:0]const u8 =
     \\    dialog: {},
     \\
     \\    // AI namespace - local LLM inference
+    \\    // Models are auto-detected from ~/.ziew/models/
     \\    ai: {
+    \\      // Load a model by name or path
+    \\      // If no name provided, auto-loads first model from ~/.ziew/models/
+    \\      load: function(modelName) {
+    \\        return new Promise((resolve, reject) => {
+    \\          const id = String(nextId++);
+    \\          pending.set(id, { resolve, reject });
+    \\          if (window.__ziew_ai_load) {
+    \\            window.__ziew_ai_load(JSON.stringify({ id, model: modelName }));
+    \\          } else {
+    \\            pending.delete(id);
+    \\            reject(new Error('AI not available - build with -Dai=true'));
+    \\          }
+    \\        });
+    \\      },
+    \\
+    \\      // List available models in ~/.ziew/models/
+    \\      models: function() {
+    \\        return new Promise((resolve, reject) => {
+    \\          const id = String(nextId++);
+    \\          pending.set(id, { resolve, reject });
+    \\          if (window.__ziew_ai_models) {
+    \\            window.__ziew_ai_models(JSON.stringify({ id }));
+    \\          } else {
+    \\            pending.delete(id);
+    \\            reject(new Error('AI not available - build with -Dai=true'));
+    \\          }
+    \\        });
+    \\      },
+    \\
     \\      // Generate text completion (returns full response)
-    \\      // Options: { maxTokens: 256, temperature: 0.7 }
+    \\      // Auto-loads model from ~/.ziew/models/ if not already loaded
     \\      complete: function(prompt, options = {}) {
     \\        return new Promise((resolve, reject) => {
     \\          const id = String(nextId++);
@@ -83,6 +113,7 @@ pub const ziew_js: [:0]const u8 =
     \\      },
     \\
     \\      // Stream text generation (async generator)
+    \\      // Auto-loads model from ~/.ziew/models/ if not already loaded
     \\      // Usage: for await (const token of ziew.ai.stream('Hello')) { ... }
     \\      stream: async function*(prompt, options = {}) {
     \\        if (!window.__ziew_ai_stream) {

@@ -3,8 +3,8 @@
 //! Demonstrates text generation using llama.cpp.
 //! Build with: zig build -Dai=true ai
 //!
-//! Requires a GGUF model file. Download one from:
-//! https://huggingface.co/models?search=gguf
+//! Models are auto-detected from ~/.ziew/models/
+//! Or pass a specific model path: ai-example /path/to/model.gguf
 
 const std = @import("std");
 const ziew = @import("ziew");
@@ -14,22 +14,38 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // Get model path from args or use default
+    // Get model path from args or auto-detect
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
-    const model_path = if (args.len > 1) args[1] else blk: {
-        const default = try ziew.ai.getDefaultModelPath(allocator);
-        std.debug.print("[ai] No model specified, checking default: {s}\n", .{default});
-        break :blk default;
+    const model_path: []const u8 = if (args.len > 1)
+        args[1]
+    else blk: {
+        // Try to find a model in ~/.ziew/models/
+        std.debug.print("[ai] Looking for models in ~/.ziew/models/\n", .{});
+
+        // Ensure directory exists
+        ziew.ai.ensureModelsDir(allocator) catch {};
+
+        // Find default model
+        if (try ziew.ai.findDefaultModel(allocator)) |path| {
+            std.debug.print("[ai] Found model: {s}\n", .{path});
+            break :blk path;
+        } else {
+            std.debug.print("[ai] No models found in ~/.ziew/models/\n", .{});
+            std.debug.print("[ai] Download a .gguf model from HuggingFace:\n", .{});
+            std.debug.print("[ai]   https://huggingface.co/models?search=gguf\n", .{});
+            std.debug.print("[ai] Or specify a path: ai-example /path/to/model.gguf\n", .{});
+            return;
+        }
     };
+    defer if (args.len <= 1) allocator.free(model_path);
 
     std.debug.print("[ai] Loading model: {s}\n", .{model_path});
 
     // Initialize AI
     var ai = ziew.ai.Ai.init(allocator, model_path) catch |err| {
         std.debug.print("[ai] Failed to load model: {any}\n", .{err});
-        std.debug.print("[ai] Usage: ai-example <path-to-model.gguf>\n", .{});
         return;
     };
     defer ai.deinit();
