@@ -46,68 +46,58 @@ That's **680x smaller** than Electron.
 - **Tiny binaries** — 220KB hello world, real apps under 2MB
 - **Native webviews** — Uses system WebView (WebKit, Edge WebView2)
 - **No bundled browser** — Unlike Electron's 150MB Chromium
-- **Plugin system** — SQLite, notifications, hotkeys, gamepad, serial, and more
-- **Local AI** — First-class llama.cpp bindings + Piper TTS
-- **Lua scripting** — Optional LuaJIT for custom backend logic (+~300KB)
-- **Cross-compilation** — `zig build -Dtarget=x86_64-windows` just works
+- **Plugin system** — SQLite, notifications, hotkeys, gamepad, AI, and more
+- **Local AI** — Optional llama.cpp + whisper.cpp + Piper TTS
+- **Cross-compilation** — `ziew ship --target=windows` builds for any platform
 - **Simple toolchain** — Zig is ~40MB, not hundreds
 
 ## How It Works
 
-**Most apps:** Use built-in JavaScript APIs — no backend code needed.
+Use built-in JavaScript APIs — no backend code needed.
 
 ```javascript
-// Built-in APIs - works out of the box
+// File system
 const files = await ziew.fs.readDir('./docs');
 const data = await ziew.fs.readFile('./config.json');
 
-// Local AI - runs on device, no API keys
-const summary = await ziew.ai.complete('Summarize this...');
+// Native dialogs
+const path = await ziew.dialog.open({ filters: ['*.txt'] });
 
-// Stream responses
+// System notifications (with notify plugin)
+await ziew.notify.send('Done!', 'Your export is ready.');
+
+// Local AI (with ai plugin)
 for await (const token of ziew.ai.stream(prompt)) {
   output.textContent += token;
 }
 ```
 
-**Need custom logic?** Add Lua scripting (~300KB overhead):
-
-```lua
--- backend.lua
-function processDocument(path)
-  local content = ziew.fs.read(path)
-  local summary = ziew.ai.complete("Summarize: " .. content)
-  return { text = summary, words = #content }
-end
-```
-
-```javascript
-// Call Lua from JavaScript
-const result = await ziew.lua.call('processDocument', './report.md');
-```
-
 ## Plugins
 
-Enable native capabilities at build time. Only enabled plugins add to binary size.
+Enable native capabilities via `ziew.zon` config. Only enabled plugins add to binary size.
 
 ```bash
-zig build -Dsqlite -Dnotify -Dhotkeys
+# Add plugins to your project
+ziew plugin add sqlite notify hotkeys
+
+# Build (reads from ziew.zon)
+ziew build
 ```
 
-| Plugin | Flag | Description |
-|--------|------|-------------|
-| **sqlite** | `-Dsqlite` | Embedded SQLite database |
-| **notify** | `-Dnotify` | System notifications |
-| **keychain** | `-Dkeychain` | Secure credential storage |
-| **hotkeys** | `-Dhotkeys` | Global keyboard shortcuts |
-| **gamepad** | `-Dgamepad` | Game controller input |
-| **serial** | `-Dserial` | Serial port communication |
-| **ai** | `-Dai` | Local LLM (llama.cpp) |
-| **whisper** | `-Dwhisper` | Speech-to-text |
-| **piper** | `-Dpiper` | Text-to-speech |
-| **lua** | `-Dlua` | LuaJIT scripting |
+| Plugin | Description |
+|--------|-------------|
+| **sqlite** | Embedded SQLite database |
+| **notify** | System notifications |
+| **keychain** | Secure credential storage |
+| **hotkeys** | Global keyboard shortcuts |
+| **gamepad** | Game controller input |
+| **serial** | Serial port communication |
+| **ai** | Local LLM (llama.cpp) |
+| **whisper** | Speech-to-text |
+| **piper** | Text-to-speech |
+| **lua** | LuaJIT scripting |
 
-See [PLUGINS.md](PLUGINS.md) for full documentation.
+See [ziew.sh/plugins](https://ziew.sh/plugins) for full documentation.
 
 ## Platform Support
 
@@ -121,10 +111,10 @@ See [PLUGINS.md](PLUGINS.md) for full documentation.
 
 ```bash
 # macOS / Linux
-curl -fsSL ziew.sh/install | sh
+curl -fsSL https://ziew.sh/install | sh
 
 # Windows (PowerShell)
-irm ziew.sh/install.ps1 | iex
+irm https://ziew.sh/install.ps1 | iex
 ```
 
 ### Manual Build
