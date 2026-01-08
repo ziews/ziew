@@ -1,9 +1,12 @@
 // {{PROJECT_NAME}} - Built with Ziew + Phaser
 // https://phaser.io/
-
-// ============================================
-// SCENES
-// ============================================
+//
+// IMPORTANT: WebKit webview compatibility notes for LLMs:
+// - DO NOT use Phaser arcade physics (causes "e[i] is not a function" error)
+// - Use manual collision detection with distance checks instead
+// - Use object pooling (pre-create, toggle active/visible) to avoid GC pauses
+// - Use click/pointer for scene transitions (keyboard focus unreliable)
+// - Expect brief slowdown on first load (JIT warmup)
 
 class TitleScene extends Phaser.Scene {
   constructor() {
@@ -11,149 +14,173 @@ class TitleScene extends Phaser.Scene {
   }
 
   create() {
-    const centerX = this.cameras.main.width / 2
-    const centerY = this.cameras.main.height / 2
+    const cx = this.cameras.main.width / 2
+    const cy = this.cameras.main.height / 2
 
-    this.add.text(centerX, centerY - 50, '{{PROJECT_NAME}}', {
+    this.add.text(cx, cy - 80, '{{PROJECT_NAME}}', {
       fontSize: '48px',
+      color: '#00ffff',
+      fontStyle: 'bold'
+    }).setOrigin(0.5)
+
+    this.add.text(cx, cy, 'Click to Start', {
+      fontSize: '24px',
       color: '#ffffff'
     }).setOrigin(0.5)
 
-    this.add.text(centerX, centerY + 50, 'Press SPACE to start', {
-      fontSize: '20px',
-      color: '#999999'
+    this.add.text(cx, cy + 60, 'WASD/Arrows to move | Space to shoot', {
+      fontSize: '16px',
+      color: '#888888'
     }).setOrigin(0.5)
 
-    this.input.keyboard.once('keydown-SPACE', () => {
-      this.scene.start('GameScene')
-    })
+    // Use pointer for scene transitions (more reliable than keyboard in webview)
+    this.input.once('pointerdown', () => this.scene.start('GameScene'))
   }
 }
 
 class GameScene extends Phaser.Scene {
   constructor() {
     super({ key: 'GameScene' })
+  }
+
+  init() {
     this.score = 0
   }
 
   create() {
-    // Physics world bounds
-    this.physics.world.setBounds(0, 0, 800, 600)
+    // Player (triangle ship)
+    this.player = this.add.triangle(400, 500, 0, 20, 10, 0, 20, 20, 0x00ffff)
+    this.player.setOrigin(0.5)
 
-    // Ground
-    this.ground = this.add.rectangle(400, 576, 800, 48, 0x288028)
-    this.physics.add.existing(this.ground, true)
-
-    // Player
-    this.player = this.add.rectangle(100, 500, 32, 32, 0x50b4ff)
-    this.physics.add.existing(this.player)
-    this.player.body.setCollideWorldBounds(true)
-    this.player.body.setBounce(0)
-
-    // Collide player with ground
-    this.physics.add.collider(this.player, this.ground)
-
-    // Coins group
-    this.coins = this.physics.add.group()
-    for (let i = 0; i < 5; i++) {
-      this.spawnCoin()
+    // Object pooling: pre-create bullets (reuse instead of create/destroy)
+    this.bulletPool = []
+    for (let i = 0; i < 30; i++) {
+      const b = this.add.rectangle(0, -100, 4, 12, 0xffff00)
+      b.active = false
+      b.visible = false
+      this.bulletPool.push(b)
     }
 
-    // Collect coins
-    this.physics.add.overlap(this.player, this.coins, this.collectCoin, null, this)
+    // Object pooling: pre-create enemies
+    this.enemyPool = []
+    for (let i = 0; i < 20; i++) {
+      const e = this.add.rectangle(0, -100, 24, 24, 0xff3333)
+      e.active = false
+      e.visible = false
+      this.enemyPool.push(e)
+    }
 
-    // Score text
-    this.scoreText = this.add.text(12, 12, 'Score: 0', {
-      fontSize: '24px',
+    // UI
+    this.scoreText = this.add.text(10, 10, 'Score: 0', {
+      fontSize: '20px',
       color: '#ffffff'
     })
 
-    // Controls
-    this.cursors = this.input.keyboard.createCursorKeys()
-    this.wasd = this.input.keyboard.addKeys({
-      up: Phaser.Input.Keyboard.KeyCodes.W,
-      down: Phaser.Input.Keyboard.KeyCodes.S,
-      left: Phaser.Input.Keyboard.KeyCodes.A,
-      right: Phaser.Input.Keyboard.KeyCodes.D
-    })
+    // Timers
+    this.spawnTimer = 0
+    this.shootTimer = 0
+
+    // Controls - use addKeys for better compatibility
+    this.keys = this.input.keyboard.addKeys('W,A,S,D,SPACE,UP,DOWN,LEFT,RIGHT')
   }
 
-  update() {
-    const speed = 240
-    const jumpForce = 400
+  update(time, delta) {
+    const dt = delta / 1000
 
-    // Horizontal movement
-    let vx = 0
-    if (this.cursors.left.isDown || this.wasd.left.isDown) vx = -speed
-    if (this.cursors.right.isDown || this.wasd.right.isDown) vx = speed
-    this.player.body.setVelocityX(vx)
+    // Player movement
+    let vx = 0, vy = 0
+    if (this.keys.LEFT.isDown || this.keys.A.isDown) vx = -300
+    if (this.keys.RIGHT.isDown || this.keys.D.isDown) vx = 300
+    if (this.keys.UP.isDown || this.keys.W.isDown) vy = -300
+    if (this.keys.DOWN.isDown || this.keys.S.isDown) vy = 300
 
-    // Jump
-    const onGround = this.player.body.blocked.down
-    const jumpPressed = Phaser.Input.Keyboard.JustDown(this.cursors.space) ||
-                        Phaser.Input.Keyboard.JustDown(this.cursors.up) ||
-                        Phaser.Input.Keyboard.JustDown(this.wasd.up)
-    if (onGround && jumpPressed) {
-      this.player.body.setVelocityY(-jumpForce)
+    this.player.x = Phaser.Math.Clamp(this.player.x + vx * dt, 20, 780)
+    this.player.y = Phaser.Math.Clamp(this.player.y + vy * dt, 20, 580)
+
+    // Shooting (with cooldown)
+    this.shootTimer -= delta
+    if (this.keys.SPACE.isDown && this.shootTimer <= 0) {
+      this.shoot()
+      this.shootTimer = 120
     }
 
-    // Fall off screen
-    if (this.player.y > 650) {
-      this.scene.start('GameOverScene', { score: this.score })
+    // Spawn enemies
+    this.spawnTimer -= delta
+    if (this.spawnTimer <= 0) {
+      this.spawnEnemy()
+      this.spawnTimer = 800
+    }
+
+    // Update bullets (manual movement, no physics)
+    const px = this.player.x, py = this.player.y
+    for (const b of this.bulletPool) {
+      if (!b.active) continue
+      b.y -= 500 * dt
+      if (b.y < -20) {
+        b.active = false
+        b.visible = false
+        continue
+      }
+
+      // Manual collision detection (squared distance, faster than sqrt)
+      for (const e of this.enemyPool) {
+        if (!e.active) continue
+        const dx = b.x - e.x, dy = b.y - e.y
+        if (dx*dx + dy*dy < 400) {
+          b.active = false
+          b.visible = false
+          e.active = false
+          e.visible = false
+          this.score += 100
+          this.scoreText.setText('Score: ' + this.score)
+          break
+        }
+      }
+    }
+
+    // Update enemies
+    for (const e of this.enemyPool) {
+      if (!e.active) continue
+      e.y += 150 * dt
+      if (e.y > 620) {
+        e.active = false
+        e.visible = false
+        continue
+      }
+
+      // Player collision
+      const dx = px - e.x, dy = py - e.y
+      if (dx*dx + dy*dy < 500) {
+        this.scene.start('GameOverScene', { score: this.score })
+        return
+      }
     }
   }
 
-  spawnCoin() {
-    const x = Phaser.Math.Between(50, 750)
-    const y = Phaser.Math.Between(100, 450)
-    const coin = this.add.circle(x, y, 12, 0xffd700)
-    this.physics.add.existing(coin, true)
-    this.coins.add(coin)
-  }
-
-  collectCoin(player, coin) {
-    coin.destroy()
-    this.score += 10
-    this.scoreText.setText('Score: ' + this.score)
-    this.spawnCoin()
-
-    if (this.score >= 100) {
-      this.scene.start('WinScene', { score: this.score })
+  shoot() {
+    // Get inactive bullet from pool
+    for (const b of this.bulletPool) {
+      if (!b.active) {
+        b.x = this.player.x
+        b.y = this.player.y - 15
+        b.active = true
+        b.visible = true
+        return
+      }
     }
   }
-}
 
-class WinScene extends Phaser.Scene {
-  constructor() {
-    super({ key: 'WinScene' })
-  }
-
-  init(data) {
-    this.finalScore = data.score || 0
-  }
-
-  create() {
-    const centerX = this.cameras.main.width / 2
-    const centerY = this.cameras.main.height / 2
-
-    this.add.text(centerX, centerY - 40, 'You Win!', {
-      fontSize: '64px',
-      color: '#ffd700'
-    }).setOrigin(0.5)
-
-    this.add.text(centerX, centerY + 30, 'Score: ' + this.finalScore, {
-      fontSize: '32px',
-      color: '#ffffff'
-    }).setOrigin(0.5)
-
-    this.add.text(centerX, centerY + 90, 'Press SPACE to play again', {
-      fontSize: '18px',
-      color: '#999999'
-    }).setOrigin(0.5)
-
-    this.input.keyboard.once('keydown-SPACE', () => {
-      this.scene.start('GameScene')
-    })
+  spawnEnemy() {
+    // Get inactive enemy from pool
+    for (const e of this.enemyPool) {
+      if (!e.active) {
+        e.x = Phaser.Math.Between(50, 750)
+        e.y = -20
+        e.active = true
+        e.visible = true
+        return
+      }
+    }
   }
 }
 
@@ -167,47 +194,35 @@ class GameOverScene extends Phaser.Scene {
   }
 
   create() {
-    const centerX = this.cameras.main.width / 2
-    const centerY = this.cameras.main.height / 2
+    const cx = this.cameras.main.width / 2
+    const cy = this.cameras.main.height / 2
 
-    this.add.text(centerX, centerY - 40, 'Game Over', {
+    this.add.text(cx, cy - 60, 'GAME OVER', {
       fontSize: '64px',
-      color: '#ff5050'
+      color: '#ff3333'
     }).setOrigin(0.5)
 
-    this.add.text(centerX, centerY + 30, 'Score: ' + this.finalScore, {
+    this.add.text(cx, cy + 20, 'Score: ' + this.finalScore, {
       fontSize: '32px',
       color: '#ffffff'
     }).setOrigin(0.5)
 
-    this.add.text(centerX, centerY + 90, 'Press SPACE to retry', {
-      fontSize: '18px',
-      color: '#999999'
+    this.add.text(cx, cy + 80, 'Click to retry', {
+      fontSize: '20px',
+      color: '#888888'
     }).setOrigin(0.5)
 
-    this.input.keyboard.once('keydown-SPACE', () => {
-      this.scene.start('GameScene')
-    })
+    this.input.once('pointerdown', () => this.scene.start('GameScene'))
   }
 }
 
-// ============================================
-// GAME CONFIG
-// ============================================
-
+// Game config - NO PHYSICS (causes errors in WebKit webview)
 const config = {
   type: Phaser.AUTO,
   width: 800,
   height: 600,
-  backgroundColor: '#141420',
-  physics: {
-    default: 'arcade',
-    arcade: {
-      gravity: { y: 800 },
-      debug: false
-    }
-  },
-  scene: [TitleScene, GameScene, WinScene, GameOverScene]
+  backgroundColor: '#0a0a1a',
+  scene: [TitleScene, GameScene, GameOverScene]
 }
 
 const game = new Phaser.Game(config)

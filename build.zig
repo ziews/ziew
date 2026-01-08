@@ -104,6 +104,13 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(lib);
 
+    // Expose ziew as a module for external projects
+    const ziew_module = b.addModule("ziew", .{
+        .root_source_file = b.path("src/main.zig"),
+    });
+    // Add webview include path to the module
+    ziew_module.addIncludePath(webview_dep.path("core/include"));
+
     // Ziew CLI
     const cli_exe = b.addExecutable(.{
         .name = "ziew",

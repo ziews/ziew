@@ -654,7 +654,47 @@ pub const Cli = struct {
         \\pub fn build(b: *std.Build) void {
         \\    const target = b.standardTargetOptions(.{});
         \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const os = target.result.os.tag;
         \\
+        \\    // Get ziew dependency (includes webview)
+        \\    const ziew_dep = b.dependency("ziew", .{
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\
+        \\    // Get webview from ziew's dependencies
+        \\    const webview_dep = ziew_dep.builder.dependency("webview", .{});
+        \\
+        \\    // Build webview C++ library
+        \\    const webview_lib = b.addStaticLibrary(.{
+        \\        .name = "webview",
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    webview_lib.addCSourceFile(.{
+        \\        .file = webview_dep.path("core/src/webview.cc"),
+        \\        .flags = &.{ "-std=c++14", "-DWEBVIEW_STATIC" },
+        \\    });
+        \\    webview_lib.addIncludePath(webview_dep.path("core/include"));
+        \\    webview_lib.linkLibCpp();
+        \\
+        \\    // Link platform libraries
+        \\    if (os == .linux) {
+        \\        webview_lib.linkSystemLibrary("gtk+-3.0");
+        \\        webview_lib.linkSystemLibrary("webkit2gtk-4.1");
+        \\    } else if (os == .macos) {
+        \\        webview_lib.linkFramework("Cocoa");
+        \\        webview_lib.linkFramework("WebKit");
+        \\    } else if (os == .windows) {
+        \\        webview_lib.linkSystemLibrary("ole32");
+        \\        webview_lib.linkSystemLibrary("shlwapi");
+        \\        webview_lib.linkSystemLibrary("version");
+        \\        webview_lib.linkSystemLibrary("advapi32");
+        \\        webview_lib.linkSystemLibrary("shell32");
+        \\        webview_lib.linkSystemLibrary("user32");
+        \\    }
+        \\
+        \\    // Build executable
         \\    const exe = b.addExecutable(.{
         \\        .name = "{{PROJECT_NAME_LOWER}}",
         \\        .root_source_file = b.path("main.zig"),
@@ -662,11 +702,9 @@ pub const Cli = struct {
         \\        .optimize = optimize,
         \\    });
         \\
-        \\    const ziew_dep = b.dependency("ziew", .{
-        \\        .target = target,
-        \\        .optimize = optimize,
-        \\    });
         \\    exe.root_module.addImport("ziew", ziew_dep.module("ziew"));
+        \\    exe.addIncludePath(webview_dep.path("core/include"));
+        \\    exe.linkLibrary(webview_lib);
         \\
         \\    b.installArtifact(exe);
         \\
@@ -702,7 +740,7 @@ pub const Cli = struct {
         \\    .dependencies = .{
         \\        .ziew = .{
         \\            .url = "https://github.com/ziews/ziew/archive/refs/heads/main.tar.gz",
-        \\            // .hash = "...",
+        \\            .hash = "1220d05ba59d18f58632664aafc28e4474ae06e173fc925266a663ae3827375777fc",
         \\        },
         \\    },
         \\    .paths = .{ "build.zig", "build.zig.zon", "main.zig", "index.html", "game.js" },
