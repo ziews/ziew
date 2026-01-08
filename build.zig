@@ -6,6 +6,7 @@ pub fn build(b: *std.Build) void {
 
     // Optional features
     const enable_lua = b.option(bool, "lua", "Enable LuaJIT support (requires libluajit-5.1-dev)") orelse false;
+    const enable_ai = b.option(bool, "ai", "Enable AI support via llama.cpp (requires llama.cpp installed)") orelse false;
 
     // Get the webview dependency
     const webview_dep = b.dependency("webview", .{});
@@ -71,6 +72,14 @@ pub fn build(b: *std.Build) void {
         lib.root_module.addCMacro("HAS_LUA", "1");
     }
 
+    // AI support via llama.cpp (optional)
+    if (enable_ai) {
+        lib.linkSystemLibrary("llama");
+        lib.linkLibC();
+        // Define HAS_AI so code can conditionally compile
+        lib.root_module.addCMacro("HAS_AI", "1");
+    }
+
     b.installArtifact(lib);
 
     // Ziew CLI
@@ -133,6 +142,27 @@ pub fn build(b: *std.Build) void {
         run_lua.step.dependOn(b.getInstallStep());
         const lua_step = b.step("lua", "Run the Lua example");
         lua_step.dependOn(&run_lua.step);
+    }
+
+    // AI example (only when ai is enabled)
+    if (enable_ai) {
+        const ai_exe = b.addExecutable(.{
+            .name = "ai-example",
+            .root_source_file = b.path("examples/ai/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        ai_exe.root_module.addImport("ziew", &lib.root_module);
+        ai_exe.addIncludePath(webview_dep.path("core/include"));
+        ai_exe.linkLibrary(webview_lib);
+        ai_exe.linkSystemLibrary("llama");
+        ai_exe.linkLibC();
+        b.installArtifact(ai_exe);
+
+        const run_ai = b.addRunArtifact(ai_exe);
+        run_ai.step.dependOn(b.getInstallStep());
+        const ai_step = b.step("ai", "Run the AI example");
+        ai_step.dependOn(&run_ai.step);
     }
 
     // Tests

@@ -13,6 +13,9 @@ pub const plugin = @import("plugin.zig");
 // Lua module - optional, build with -Dlua=true
 pub const lua = @import("lua.zig");
 
+// AI module - optional, build with -Dai=true
+pub const ai = @import("ai.zig");
+
 /// Ziew version
 pub const version = "0.2.0";
 
