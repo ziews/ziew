@@ -1,4 +1,4 @@
-// Ziew JS Bridge v0.1.0
+// Ziew JS Bridge v0.2.0
 // This file is embedded into the Zig binary and injected into every webview page.
 
 (function() {
@@ -14,7 +14,7 @@
   // Create the ziew namespace
   window.ziew = {
     platform: navigator.platform.includes('Linux') ? 'linux' : navigator.platform.includes('Mac') ? 'macos' : navigator.platform.includes('Win') ? 'windows' : 'unknown',
-    version: '0.1.0',
+    version: '0.2.0',
 
     // Internal: resolve a pending call
     _resolve: function(id, result) {
@@ -104,5 +104,5 @@
     };
   };
 
-  console.log('[ziew] Bridge initialized v0.1.0');
+  console.log('[ziew] Bridge initialized v0.2.0');
 })();

@@ -15,7 +15,7 @@
 
 <p align="center">
   <a href="https://github.com/ziews/ziew/blob/main/LICENSE"><img src="https://img.shields.io/github/license/ziews/ziew?style=flat-square" alt="license"></a>
-  <img src="https://img.shields.io/badge/binary_size-19KB-brightgreen?style=flat-square" alt="binary size">
+  <img src="https://img.shields.io/badge/binary_size-220KB-brightgreen?style=flat-square" alt="binary size">
   <img src="https://img.shields.io/badge/built_with-Zig-f7a41d?style=flat-square" alt="built with Zig">
   <img src="https://img.shields.io/badge/platforms-Win%20%7C%20Mac%20%7C%20Linux-blue?style=flat-square" alt="platforms">
 </p>
@@ -29,7 +29,7 @@
 
 ---
 
-> ⚠️ **Early Alpha** — Linux only for now. APIs will change. Not production-ready.
+> ⚠️ **Early Alpha** — APIs will change. Not production-ready.
 
 ## The Post-Electron Era
 
@@ -37,13 +37,13 @@
 |-----------|------------------|
 | Electron | ~150 MB |
 | Tauri | ~3-5 MB |
-| **Ziew** | **19 KB** |
+| **Ziew** | **220 KB** |
 
-That's not a typo. Ziew is **7,800x smaller** than Electron.
+That's **680x smaller** than Electron.
 
 ## Why Ziew
 
-- **Tiny binaries** — 19KB hello world, real apps under 2MB
+- **Tiny binaries** — 220KB hello world, real apps under 2MB
 - **Native webviews** — Uses system WebView (WebKit, Edge WebView2)
 - **No bundled browser** — Unlike Electron's 150MB Chromium
 - **Local AI** — First-class llama.cpp/whisper.cpp bindings (coming soon)
@@ -90,10 +90,8 @@ const result = await ziew.lua.call('processDocument', './report.md');
 | Platform | Webview | Status | Dependencies |
 |----------|---------|--------|--------------|
 | **Linux** | WebKit2GTK | ✅ Ready | `apt install libgtk-3-dev libwebkit2gtk-4.1-dev` |
-| **macOS** | WebKit | 🚧 Coming | None (built-in) |
-| **Windows** | Edge WebView2 | 🚧 Coming | None (built-in) |
-
-> **Note:** v0.1 supports Linux. macOS and Windows support coming soon — the goal is zero dependencies on those platforms.
+| **macOS** | WebKit | ✅ Ready | None (built-in) |
+| **Windows** | Edge WebView2 | ✅ Ready | None (built-in on Win 10/11) |
 
 ## Installation
 
@@ -137,21 +135,21 @@ $ ziew ship
 
 Building for all platforms...
 
-✓ myapp-windows-x64.exe    847 KB
-✓ myapp-macos-x64          1.2 MB
-✓ myapp-macos-arm64        1.1 MB
-✓ myapp-linux-x64          892 KB
+✓ myapp-windows-x64.exe    320 KB
+✓ myapp-macos-x64          380 KB
+✓ myapp-macos-arm64        360 KB
+✓ myapp-linux-x64          340 KB
 
-Total: 4.0 MB (all platforms combined)
+Total: 1.4 MB (all platforms combined)
 ```
+
+> Note: `ziew ship` always uses optimized release builds for smallest binary sizes.
 
 ## Roadmap
 
 **v0.1 — Foundation**
-- [x] Linux webview (GTK/WebKit)
+- [x] Cross-platform webview (GTK/WebKit, Cocoa/WebKit, Edge WebView2)
 - [x] JS bridge injection
-- [ ] macOS webview (Cocoa/WebKit)
-- [ ] Windows webview (Edge WebView2)
 - [ ] Built-in JS APIs (`ziew.fs`, `ziew.shell`, `ziew.dialog`)
 - [ ] `ziew init` / `ziew dev` / `ziew ship` CLI
 
@@ -163,6 +161,7 @@ Total: 4.0 MB (all platforms combined)
 **Future**
 - [ ] Plugin system
 - [ ] TypeScript definitions generation
+- [ ] `ziew docs` — API documentation generation
 
 ## Links
 

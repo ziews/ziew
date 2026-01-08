@@ -2,7 +2,7 @@
 
 /// The ziew.js JavaScript code that gets injected
 pub const ziew_js: [:0]const u8 =
-    \\// Ziew JS Bridge v0.1.0
+    \\// Ziew JS Bridge v0.2.0
     \\(function() {
     \\  'use strict';
     \\
@@ -16,7 +16,7 @@ pub const ziew_js: [:0]const u8 =
     \\  // Create the ziew namespace
     \\  window.ziew = {
     \\    platform: navigator.platform.includes('Linux') ? 'linux' : navigator.platform.includes('Mac') ? 'macos' : navigator.platform.includes('Win') ? 'windows' : 'unknown',
-    \\    version: '0.1.0',
+    \\    version: '0.2.0',
     \\
     \\    // Internal: resolve a pending call
     \\    _resolve: function(id, result) {
@@ -106,6 +106,6 @@ pub const ziew_js: [:0]const u8 =
     \\    };
     \\  };
     \\
-    \\  console.log('[ziew] Bridge initialized v0.1.0');
+    \\  console.log('[ziew] Bridge initialized v0.2.0');
     \\})();
 ;

@@ -8,9 +8,10 @@ const std = @import("std");
 pub const App = @import("app.zig").App;
 pub const webview = @import("webview.zig");
 pub const bridge = @import("bridge.zig");
+pub const plugin = @import("plugin.zig");
 
 /// Ziew version
-pub const version = "0.1.0";
+pub const version = "0.2.0";
 
 /// Get the current platform name
 pub fn platform() []const u8 {
