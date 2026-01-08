@@ -16,6 +16,15 @@ pub const AiBridge = struct {
 
     const Self = @This();
 
+    /// Thread context for inference
+    const InferenceCtx = struct {
+        bridge: *Self,
+        ai_inst: *ai.Ai,
+        id: []const u8,
+        prompt: []const u8,
+        max_tokens: u32,
+    };
+
     /// Initialize AI bridge with a specific model
     /// NOTE: Call bind() after the struct is at its final memory location
     pub fn init(allocator: std.mem.Allocator, window: webview.Window, model_path: []const u8) !Self {
@@ -407,18 +416,11 @@ pub const AiBridge = struct {
             return;
         };
 
-        // Create streaming context - need to copy id since parsed will be freed
+        // Create streaming context - need to copy data for the thread
         const id_copy = self.allocator.dupe(u8, id_str) catch {
             self.streamError(id_str, "Out of memory");
             return;
         };
-        defer self.allocator.free(id_copy);
-
-        const StreamCtx = struct {
-            bridge: *Self,
-            id: []const u8,
-        };
-        var stream_ctx = StreamCtx{ .bridge = self, .id = id_copy };
 
         // Format as chat - wrap in TinyLlama/Llama chat template
         const chat_prompt = std.fmt.allocPrint(
@@ -426,19 +428,61 @@ pub const AiBridge = struct {
             "<|system|>\nYou are a helpful AI assistant.</s>\n<|user|>\n{s}</s>\n<|assistant|>\n",
             .{prompt},
         ) catch {
-            self.streamError(id_copy, "Out of memory");
+            self.allocator.free(id_copy);
+            self.streamError(id_str, "Out of memory");
             return;
         };
-        defer self.allocator.free(chat_prompt);
 
-        // Stream tokens
-        ai_instance.stream(chat_prompt, max_tokens, streamTokenCallback, @ptrCast(&stream_ctx)) catch {
-            self.streamError(id_copy, "Stream failed");
+        // Thread context - owns the allocated strings
+        const thread_ctx = self.allocator.create(InferenceCtx) catch {
+            self.allocator.free(id_copy);
+            self.allocator.free(chat_prompt);
+            self.streamError(id_str, "Out of memory");
+            return;
+        };
+        thread_ctx.* = .{
+            .bridge = self,
+            .ai_inst = ai_instance,
+            .id = id_copy,
+            .prompt = chat_prompt,
+            .max_tokens = max_tokens,
+        };
+
+        // Spawn inference thread
+        const thread = std.Thread.spawn(.{}, inferenceThread, .{thread_ctx}) catch {
+            self.allocator.free(id_copy);
+            self.allocator.free(chat_prompt);
+            self.allocator.destroy(thread_ctx);
+            self.streamError(id_str, "Failed to spawn thread");
+            return;
+        };
+        thread.detach();
+    }
+
+    /// Thread function for inference
+    fn inferenceThread(ctx: *InferenceCtx) void {
+        const StreamCtx = struct {
+            bridge: *Self,
+            id: []const u8,
+        };
+        var stream_ctx = StreamCtx{ .bridge = ctx.bridge, .id = ctx.id };
+
+        // Run inference
+        ctx.ai_inst.stream(ctx.prompt, ctx.max_tokens, streamTokenCallback, @ptrCast(&stream_ctx)) catch {
+            ctx.bridge.streamError(ctx.id, "Stream failed");
+            ctx.bridge.allocator.free(ctx.id);
+            ctx.bridge.allocator.free(ctx.prompt);
+            ctx.bridge.allocator.destroy(ctx);
             return;
         };
 
         // End stream
-        self.streamEnd(id_copy);
+        ctx.bridge.streamEnd(ctx.id);
+
+        // Clean up
+        ctx.bridge.allocator.free(ctx.id);
+        ctx.bridge.allocator.free(ctx.prompt);
+        ctx.bridge.allocator.destroy(ctx);
     }
 
     /// Callback for streaming tokens

@@ -196,6 +196,9 @@ pub const Ai = struct {
         callback: *const fn ([]const u8, ?*anyopaque) void,
         ctx: ?*anyopaque,
     ) !void {
+        // Clear memory/KV cache for new conversation
+        c.llama_memory_clear(c.llama_get_memory(self.ctx), true);
+
         // Tokenize prompt
         const prompt_z = try self.allocator.dupeZ(u8, prompt);
         defer self.allocator.free(prompt_z);
@@ -274,7 +277,7 @@ pub const Ai = struct {
 
     /// Clear the KV cache (for new conversations)
     pub fn clear(self: *Self) void {
-        c.llama_kv_cache_clear(self.ctx);
+        c.llama_memory_clear(c.llama_get_memory(self.ctx), true);
     }
 };
 
