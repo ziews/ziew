@@ -10,6 +10,9 @@ pub const webview = @import("webview.zig");
 pub const bridge = @import("bridge.zig");
 pub const plugin = @import("plugin.zig");
 
+// Lua module - optional, build with -Dlua=true
+pub const lua = @import("lua.zig");
+
 /// Ziew version
 pub const version = "0.2.0";
 

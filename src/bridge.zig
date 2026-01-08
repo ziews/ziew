@@ -65,7 +65,22 @@ pub const ziew_js: [:0]const u8 =
     \\    ai: {},
     \\    shell: {},
     \\    dialog: {},
-    \\    lua: {},
+    \\    lua: {
+    \\      // Call a Lua function by name with arguments
+    \\      // Returns a promise that resolves with the result
+    \\      call: function(funcName, ...args) {
+    \\        return new Promise((resolve, reject) => {
+    \\          const id = String(nextId++);
+    \\          pending.set(id, { resolve, reject });
+    \\          if (window.__ziew_lua_call) {
+    \\            window.__ziew_lua_call(JSON.stringify({ id, func: funcName, args }));
+    \\          } else {
+    \\            pending.delete(id);
+    \\            reject(new Error('Lua not available - build with -Dlua=true'));
+    \\          }
+    \\        });
+    \\      }
+    \\    },
     \\  };
     \\
     \\  // Helper to create async function wrappers

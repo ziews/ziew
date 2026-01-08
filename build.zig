@@ -4,6 +4,9 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // Optional features
+    const enable_lua = b.option(bool, "lua", "Enable LuaJIT support (requires libluajit-5.1-dev)") orelse false;
+
     // Get the webview dependency
     const webview_dep = b.dependency("webview", .{});
 
@@ -58,6 +61,16 @@ pub fn build(b: *std.Build) void {
     // Add webview include path for @cImport
     lib.addIncludePath(webview_dep.path("core/include"));
     lib.linkLibrary(webview_lib);
+
+    // LuaJIT support (optional)
+    if (enable_lua) {
+        if (os == .linux) {
+            lib.linkSystemLibrary("luajit-5.1");
+        }
+        // Define HAS_LUA so code can conditionally compile
+        lib.root_module.addCMacro("HAS_LUA", "1");
+    }
+
     b.installArtifact(lib);
 
     // Ziew CLI
@@ -101,6 +114,26 @@ pub fn build(b: *std.Build) void {
 
     const run_step = b.step("run", "Run the hello example");
     run_step.dependOn(&run_cmd.step);
+
+    // Lua example (only when lua is enabled)
+    if (enable_lua) {
+        const lua_exe = b.addExecutable(.{
+            .name = "lua-example",
+            .root_source_file = b.path("examples/lua/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        lua_exe.root_module.addImport("ziew", &lib.root_module);
+        lua_exe.addIncludePath(webview_dep.path("core/include"));
+        lua_exe.linkLibrary(webview_lib);
+        lua_exe.linkSystemLibrary("luajit-5.1");
+        b.installArtifact(lua_exe);
+
+        const run_lua = b.addRunArtifact(lua_exe);
+        run_lua.step.dependOn(b.getInstallStep());
+        const lua_step = b.step("lua", "Run the Lua example");
+        lua_step.dependOn(&run_lua.step);
+    }
 
     // Tests
     const lib_tests = b.addTest(.{
