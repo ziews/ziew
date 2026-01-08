@@ -64,7 +64,10 @@ pub const Ai = struct {
         };
 
         // Get vocab
-        const vocab = c.llama_model_get_vocab(model);
+        const vocab = c.llama_model_get_vocab(model) orelse {
+            c.llama_model_free(model);
+            return AiError.ModelLoadFailed;
+        };
 
         // Create context
         var ctx_params = c.llama_context_default_params();
@@ -313,7 +316,7 @@ pub fn listModels(allocator: std.mem.Allocator) ![][]const u8 {
         models.deinit();
     }
 
-    const dir = std.fs.openDirAbsolute(models_dir, .{ .iterate = true }) catch |err| {
+    var dir = std.fs.openDirAbsolute(models_dir, .{ .iterate = true }) catch |err| {
         if (err == error.FileNotFound) {
             return models.toOwnedSlice();
         }
@@ -352,7 +355,8 @@ pub fn findDefaultModel(allocator: std.mem.Allocator) !?[]const u8 {
     const models_dir = try getModelsDir(allocator);
     defer allocator.free(models_dir);
 
-    return std.fmt.allocPrint(allocator, "{s}/{s}", .{ models_dir, models[0] });
+    const path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ models_dir, models[0] });
+    return path;
 }
 
 /// Get full path for a model by name

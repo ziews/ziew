@@ -59,7 +59,7 @@ pub const Window = struct {
     };
 
     /// Callback type for bound functions
-    pub const BindCallback = *const fn ([*c]const u8, [*c]const u8, ?*anyopaque) callconv(.c) void;
+    pub const BindCallback = *const fn ([*c]const u8, [*c]const u8, ?*anyopaque) callconv(.C) void;
 
     /// Create a new webview window
     pub fn create(config: Config) !Window {

@@ -76,7 +76,7 @@ pub const LuaBridge = struct {
     }
 
     /// Callback for ziew.lua.call()
-    fn callCallback(seq: [*c]const u8, req: [*c]const u8, arg: ?*anyopaque) callconv(.c) void {
+    fn callCallback(seq: [*c]const u8, req: [*c]const u8, arg: ?*anyopaque) callconv(.C) void {
         const self: *Self = @ptrCast(@alignCast(arg));
         self.handleCall(seq, req) catch |err| {
             self.returnError(seq, err);

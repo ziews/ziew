@@ -28,6 +28,9 @@ pub fn main() !void {
     var ai_bridge = try ziew.ai_bridge.AiBridge.initAuto(allocator, app.window);
     defer ai_bridge.deinit();
 
+    // Bind the AI functions to the webview (must be called after struct is at final location)
+    try ai_bridge.bind();
+
     // Load the chat HTML
     app.loadHtml(chat_html);
 

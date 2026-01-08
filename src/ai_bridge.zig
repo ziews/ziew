@@ -17,24 +17,21 @@ pub const AiBridge = struct {
     const Self = @This();
 
     /// Initialize AI bridge with a specific model
+    /// NOTE: Call bind() after the struct is at its final memory location
     pub fn init(allocator: std.mem.Allocator, window: webview.Window, model_path: []const u8) !Self {
         const ai_instance = try allocator.create(ai.Ai);
         ai_instance.* = try ai.Ai.init(allocator, model_path);
 
-        var bridge = Self{
+        return Self{
             .allocator = allocator,
             .ai_instance = ai_instance,
             .window = window,
             .auto_load_attempted = true,
         };
-
-        // Bind the native functions
-        try bridge.bindFunctions();
-
-        return bridge;
     }
 
     /// Initialize AI bridge with auto-detection from ~/.ziew/models/
+    /// NOTE: Call bind() after the struct is at its final memory location
     pub fn initAuto(allocator: std.mem.Allocator, window: webview.Window) !Self {
         // Ensure models directory exists
         ai.ensureModelsDir(allocator) catch {};
@@ -57,7 +54,6 @@ pub const AiBridge = struct {
                     allocator.destroy(instance);
                     std.debug.print("[ai] Failed to load model\n", .{});
                     bridge.auto_load_attempted = true;
-                    try bridge.bindFunctions();
                     return bridge;
                 };
                 bridge.ai_instance = instance;
@@ -68,25 +64,23 @@ pub const AiBridge = struct {
         }
 
         bridge.auto_load_attempted = true;
-        try bridge.bindFunctions();
         return bridge;
     }
 
     /// Initialize AI bridge without loading any model (fully lazy)
+    /// NOTE: Call bind() after the struct is at its final memory location
     pub fn initLazy(allocator: std.mem.Allocator, window: webview.Window) !Self {
-        var bridge = Self{
+        return Self{
             .allocator = allocator,
             .ai_instance = null,
             .window = window,
             .auto_load_attempted = false,
         };
-
-        try bridge.bindFunctions();
-        return bridge;
     }
 
     /// Bind all native functions to the webview
-    fn bindFunctions(self: *Self) !void {
+    /// MUST be called after the struct is at its final memory location
+    pub fn bind(self: *Self) !void {
         try self.window.bind("__ziew_ai_complete", completeCallback, @ptrCast(self));
         try self.window.bind("__ziew_ai_stream", streamCallback, @ptrCast(self));
         try self.window.bind("__ziew_ai_load", loadCallback, @ptrCast(self));
@@ -143,7 +137,7 @@ pub const AiBridge = struct {
     }
 
     /// Callback for ziew.ai.load()
-    fn loadCallback(seq: [*c]const u8, req: [*c]const u8, arg: ?*anyopaque) callconv(.c) void {
+    fn loadCallback(seq: [*c]const u8, req: [*c]const u8, arg: ?*anyopaque) callconv(.C) void {
         const self: *Self = @ptrCast(@alignCast(arg));
         self.handleLoad(seq, req) catch |err| {
             self.returnError(seq, err);
@@ -154,7 +148,20 @@ pub const AiBridge = struct {
         _ = seq;
         const req_slice = std.mem.span(req);
 
-        const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, req_slice, .{}) catch {
+        // Webview passes arguments as a JSON array of strings
+        const outer = std.json.parseFromSlice(std.json.Value, self.allocator, req_slice, .{}) catch {
+            return;
+        };
+        defer outer.deinit();
+
+        const args_array = outer.value.array;
+        if (args_array.items.len == 0) return;
+        const json_str = switch (args_array.items[0]) {
+            .string => |s| s,
+            else => return,
+        };
+
+        const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, json_str, .{}) catch {
             return;
         };
         defer parsed.deinit();
@@ -176,7 +183,6 @@ pub const AiBridge = struct {
             self.loadModel(name) catch |err| {
                 const msg = switch (err) {
                     error.ModelLoadFailed => "Failed to load model",
-                    error.FileNotFound => "Model not found",
                     else => "Load error",
                 };
                 return self.rejectWithId(id_str, msg);
@@ -193,7 +199,7 @@ pub const AiBridge = struct {
     }
 
     /// Callback for ziew.ai.models()
-    fn modelsCallback(seq: [*c]const u8, req: [*c]const u8, arg: ?*anyopaque) callconv(.c) void {
+    fn modelsCallback(seq: [*c]const u8, req: [*c]const u8, arg: ?*anyopaque) callconv(.C) void {
         const self: *Self = @ptrCast(@alignCast(arg));
         self.handleModels(seq, req) catch |err| {
             self.returnError(seq, err);
@@ -204,7 +210,23 @@ pub const AiBridge = struct {
         _ = seq;
         const req_slice = std.mem.span(req);
 
-        const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, req_slice, .{}) catch {
+        // Webview passes arguments as a JSON array of strings
+        // Parse the outer array first
+        const outer = std.json.parseFromSlice(std.json.Value, self.allocator, req_slice, .{}) catch {
+            return;
+        };
+        defer outer.deinit();
+
+        // Get first element (our JSON string)
+        const args_array = outer.value.array;
+        if (args_array.items.len == 0) return;
+        const json_str = switch (args_array.items[0]) {
+            .string => |s| s,
+            else => return,
+        };
+
+        // Parse the actual request JSON
+        const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, json_str, .{}) catch {
             return;
         };
         defer parsed.deinit();
@@ -232,9 +254,9 @@ pub const AiBridge = struct {
         try json.appendSlice("[");
         for (models, 0..) |model, i| {
             if (i > 0) try json.appendSlice(",");
-            try json.appendSlice("\\\"");
+            try json.appendSlice("\"");
             try json.appendSlice(model);
-            try json.appendSlice("\\\"");
+            try json.appendSlice("\"");
         }
         try json.appendSlice("]");
 
@@ -242,7 +264,7 @@ pub const AiBridge = struct {
     }
 
     /// Callback for ziew.ai.complete()
-    fn completeCallback(seq: [*c]const u8, req: [*c]const u8, arg: ?*anyopaque) callconv(.c) void {
+    fn completeCallback(seq: [*c]const u8, req: [*c]const u8, arg: ?*anyopaque) callconv(.C) void {
         const self: *Self = @ptrCast(@alignCast(arg));
         self.handleComplete(seq, req) catch |err| {
             self.returnError(seq, err);
@@ -252,8 +274,20 @@ pub const AiBridge = struct {
     fn handleComplete(self: *Self, seq: [*c]const u8, req: [*c]const u8) !void {
         const req_slice = std.mem.span(req);
 
-        // Parse JSON request
-        const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, req_slice, .{}) catch {
+        // Webview passes arguments as a JSON array of strings
+        const outer = std.json.parseFromSlice(std.json.Value, self.allocator, req_slice, .{}) catch {
+            return self.returnJsonError(seq, "Invalid JSON request");
+        };
+        defer outer.deinit();
+
+        const args_array = outer.value.array;
+        if (args_array.items.len == 0) return self.returnJsonError(seq, "No arguments");
+        const json_str = switch (args_array.items[0]) {
+            .string => |s| s,
+            else => return self.returnJsonError(seq, "Invalid argument"),
+        };
+
+        const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, json_str, .{}) catch {
             return self.returnJsonError(seq, "Invalid JSON request");
         };
         defer parsed.deinit();
@@ -307,7 +341,7 @@ pub const AiBridge = struct {
     }
 
     /// Callback for ziew.ai.stream()
-    fn streamCallback(seq: [*c]const u8, req: [*c]const u8, arg: ?*anyopaque) callconv(.c) void {
+    fn streamCallback(seq: [*c]const u8, req: [*c]const u8, arg: ?*anyopaque) callconv(.C) void {
         const self: *Self = @ptrCast(@alignCast(arg));
         self.handleStream(seq, req) catch |err| {
             self.returnError(seq, err);
@@ -318,9 +352,21 @@ pub const AiBridge = struct {
         _ = seq;
         const req_slice = std.mem.span(req);
 
-        // Parse JSON request
-        const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, req_slice, .{}) catch {
+        // Webview passes arguments as a JSON array of strings
+        const outer = std.json.parseFromSlice(std.json.Value, self.allocator, req_slice, .{}) catch {
             return; // Can't return error for stream
+        };
+        defer outer.deinit();
+
+        const args_array = outer.value.array;
+        if (args_array.items.len == 0) return;
+        const json_str = switch (args_array.items[0]) {
+            .string => |s| s,
+            else => return,
+        };
+
+        const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, json_str, .{}) catch {
+            return;
         };
         defer parsed.deinit();
 
