@@ -23,7 +23,7 @@ pub const piper = @import("piper.zig");
 pub const piper_bridge = @import("piper_bridge.zig");
 
 /// Ziew version
-pub const version = "0.2.0";
+pub const version = "0.3.0";
 
 /// Get the current platform name
 pub fn platform() []const u8 {

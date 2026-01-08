@@ -1,45 +1,23 @@
 //! Ziew CLI - Command-line interface for project management
 //!
 //! Commands:
-//! - ziew init <name> [--style=<style>]
+//! - ziew init <name> [--style=<style>] [--template=<template>]
 //! - ziew dev
 //! - ziew build [--release]
 //! - ziew ship [--target=<target>]
-//! - ziew plugin add <name>
+//! - ziew plugin add <plugins...>
+//! - ziew plugin remove <plugins...>
 //! - ziew plugin list
-//! - ziew plugin remove <name>
-//! - ziew docs [--format=json|md]
+//! - ziew help
+//! - ziew version
 
 const std = @import("std");
-const plugin = @import("plugin.zig");
+const config = @import("config.zig");
 const builtin = @import("builtin");
-
-pub const Command = enum {
-    init,
-    dev,
-    build,
-    ship,
-    plugin_add,
-    plugin_list,
-    plugin_remove,
-    docs,
-    help,
-    version,
-};
-
-pub const CliError = error{
-    MissingArgument,
-    UnknownCommand,
-    InvalidOption,
-    PluginNotFound,
-    NetworkError,
-    FileSystemError,
-};
 
 pub const Cli = struct {
     allocator: std.mem.Allocator,
     args: []const [:0]u8,
-    plugin_manager: plugin.PluginManager,
 
     const Self = @This();
 
@@ -48,13 +26,11 @@ pub const Cli = struct {
         return Self{
             .allocator = allocator,
             .args = args,
-            .plugin_manager = try plugin.PluginManager.init(allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
         std.process.argsFree(self.allocator, self.args);
-        self.plugin_manager.deinit();
     }
 
     pub fn run(self: *Self) !void {
@@ -75,8 +51,6 @@ pub const Cli = struct {
             try self.cmdShip();
         } else if (std.mem.eql(u8, cmd_str, "plugin")) {
             try self.cmdPlugin();
-        } else if (std.mem.eql(u8, cmd_str, "docs")) {
-            try self.cmdDocs();
         } else if (std.mem.eql(u8, cmd_str, "help") or std.mem.eql(u8, cmd_str, "--help") or std.mem.eql(u8, cmd_str, "-h")) {
             try self.printHelp();
         } else if (std.mem.eql(u8, cmd_str, "version") or std.mem.eql(u8, cmd_str, "--version") or std.mem.eql(u8, cmd_str, "-v")) {
@@ -91,6 +65,7 @@ pub const Cli = struct {
         if (self.args.len < 3) {
             try self.printError("Usage: ziew init <project-name> [--template=<template>] [--style=<style>]", .{});
             try self.print("\nTemplates: kaplay, phaser, three", .{});
+            try self.print("Styles: pico, water, simple, mvp, tailwind", .{});
             return;
         }
 
@@ -116,9 +91,19 @@ pub const Cli = struct {
     }
 
     fn cmdDev(self: *Self) !void {
-        try self.print("Starting development server...", .{});
-        // TODO: Implement dev server with hot reload
-        try self.printError("dev command not yet implemented", .{});
+        // Check for ziew.zon
+        var cfg = config.Config.load(self.allocator) catch |err| {
+            try self.printError("Failed to load ziew.zon: {any}", .{err});
+            try self.print("Run this command from a ziew project directory", .{});
+            return;
+        };
+        defer cfg.deinit();
+
+        try self.print("Starting development server for {s}...", .{cfg.name});
+        try self.print("Plugins: {s}", .{if (cfg.plugins.len > 0) "enabled" else "none"});
+
+        // Build with plugins and run
+        try self.runZigBuild(&cfg, false, true);
     }
 
     fn cmdBuild(self: *Self) !void {
@@ -129,13 +114,74 @@ pub const Cli = struct {
             }
         }
 
-        try self.print("Building project{s}...", .{if (release) " (release)" else ""});
-        // TODO: Implement build command
-        try self.printError("build command not yet implemented", .{});
+        // Load config
+        var cfg = config.Config.load(self.allocator) catch |err| {
+            try self.printError("Failed to load ziew.zon: {any}", .{err});
+            try self.print("Run this command from a ziew project directory", .{});
+            return;
+        };
+        defer cfg.deinit();
+
+        try self.print("Building {s}{s}...", .{ cfg.name, if (release) " (release)" else "" });
+        if (cfg.plugins.len > 0) {
+            try self.print("Plugins: ", .{});
+            for (cfg.plugins, 0..) |plugin_name, i| {
+                if (i > 0) {
+                    const stdout = std.io.getStdOut().writer();
+                    try stdout.writeAll(", ");
+                }
+                const stdout = std.io.getStdOut().writer();
+                try stdout.print("{s}", .{plugin_name});
+            }
+            const stdout = std.io.getStdOut().writer();
+            try stdout.writeAll("\n");
+        }
+
+        try self.runZigBuild(&cfg, release, false);
+    }
+
+    fn runZigBuild(self: *Self, cfg: *config.Config, release: bool, run_after: bool) !void {
+        // Build argument list
+        var args = std.ArrayList([]const u8).init(self.allocator);
+        defer args.deinit();
+
+        try args.append("zig");
+        try args.append("build");
+
+        // Add plugin flags
+        for (cfg.plugins) |plugin_name| {
+            const flag = try std.fmt.allocPrint(self.allocator, "-D{s}=true", .{plugin_name});
+            try args.append(flag);
+        }
+
+        // Add optimize flag for release builds
+        if (release) {
+            try args.append("-Doptimize=ReleaseSmall");
+        }
+
+        // Add run if requested
+        if (run_after) {
+            try args.append("run");
+        }
+
+        // Run zig build
+        var child = std.process.Child.init(args.items, self.allocator);
+        child.stderr_behavior = .Inherit;
+        child.stdout_behavior = .Inherit;
+
+        _ = try child.spawnAndWait();
     }
 
     fn cmdShip(self: *Self) !void {
-        // Parse options
+        // Load config
+        var cfg = config.Config.load(self.allocator) catch |err| {
+            try self.printError("Failed to load ziew.zon: {any}", .{err});
+            try self.print("Run this command from a ziew project directory", .{});
+            return;
+        };
+        defer cfg.deinit();
+
+        // Parse target options
         var targets_specified = false;
         var build_windows = false;
         var build_macos_x64 = false;
@@ -175,17 +221,20 @@ pub const Cli = struct {
             build_linux = true;
         }
 
-        // Check if build.zig exists
-        std.fs.cwd().access("build.zig", .{}) catch {
-            try self.printError("No build.zig found in current directory", .{});
-            try self.print("Run this command from a ziew project directory", .{});
-            return;
-        };
-
-        // Get project name from build.zig.zon if it exists
-        const project_name = self.getProjectName() catch "app";
-
-        try self.print("Building {s} for distribution...\n", .{project_name});
+        try self.print("Building {s} for distribution...", .{cfg.name});
+        if (cfg.plugins.len > 0) {
+            try self.print("Plugins: ", .{});
+            for (cfg.plugins, 0..) |plugin_name, i| {
+                if (i > 0) {
+                    const stdout = std.io.getStdOut().writer();
+                    try stdout.writeAll(", ");
+                }
+                const stdout = std.io.getStdOut().writer();
+                try stdout.print("{s}", .{plugin_name});
+            }
+            const stdout = std.io.getStdOut().writer();
+            try stdout.writeAll("\n");
+        }
 
         // Create dist directory
         std.fs.cwd().makeDir("dist") catch |err| {
@@ -221,20 +270,35 @@ pub const Cli = struct {
         defer results.deinit();
 
         for (targets.items) |target| {
-            try self.print("Building for {s}...", .{target.name});
+            try self.print("\nBuilding for {s}...", .{target.name});
 
-            // Run zig build with target
+            // Build argument list
+            var args = std.ArrayList([]const u8).init(self.allocator);
+            defer args.deinit();
+
+            try args.append("zig");
+            try args.append("build");
+
+            // Add target
+            const target_flag = try std.fmt.allocPrint(self.allocator, "-Dtarget={s}", .{target.zig_target});
+            try args.append(target_flag);
+
+            // Add plugin flags
+            for (cfg.plugins) |plugin_name| {
+                const flag = try std.fmt.allocPrint(self.allocator, "-D{s}=true", .{plugin_name});
+                try args.append(flag);
+            }
+
+            // Always optimize for ship
+            try args.append("-Doptimize=ReleaseSmall");
+
+            // Run zig build
             const result = std.process.Child.run(.{
                 .allocator = self.allocator,
-                .argv = &.{
-                    "zig",
-                    "build",
-                    std.fmt.allocPrint(self.allocator, "-Dtarget={s}", .{target.zig_target}) catch continue,
-                    "-Doptimize=ReleaseSmall",
-                },
+                .argv = args.items,
                 .cwd = null,
             }) catch |err| {
-                try self.print("  Failed to run zig build: {any}", .{err});
+                try self.print("  Failed: {any}", .{err});
                 try results.append(.{ .name = target.name, .size = 0, .success = false });
                 continue;
             };
@@ -242,7 +306,7 @@ pub const Cli = struct {
             defer self.allocator.free(result.stderr);
 
             if (result.term.Exited != 0) {
-                try self.print("  Build failed for {s}", .{target.name});
+                try self.print("  Build failed", .{});
                 if (result.stderr.len > 0) {
                     try self.print("  {s}", .{result.stderr});
                 }
@@ -250,37 +314,36 @@ pub const Cli = struct {
                 continue;
             }
 
-            // Find and copy the built binary
-            const src_path = std.fmt.allocPrint(self.allocator, "zig-out/bin/{s}{s}", .{ project_name, target.extension }) catch continue;
+            // Copy binary to dist
+            const src_path = try std.fmt.allocPrint(self.allocator, "zig-out/bin/{s}{s}", .{ cfg.name, target.extension });
             defer self.allocator.free(src_path);
 
-            const dst_name = std.fmt.allocPrint(self.allocator, "{s}-{s}{s}", .{ project_name, target.name, target.extension }) catch continue;
+            const dst_name = try std.fmt.allocPrint(self.allocator, "{s}-{s}{s}", .{ cfg.name, target.name, target.extension });
             defer self.allocator.free(dst_name);
 
-            const dst_path = std.fmt.allocPrint(self.allocator, "dist/{s}", .{dst_name}) catch continue;
+            const dst_path = try std.fmt.allocPrint(self.allocator, "dist/{s}", .{dst_name});
             defer self.allocator.free(dst_path);
 
-            // Copy file to dist
             std.fs.cwd().copyFile(src_path, std.fs.cwd(), dst_path, .{}) catch |err| {
                 try self.print("  Failed to copy binary: {any}", .{err});
                 try results.append(.{ .name = target.name, .size = 0, .success = false });
                 continue;
             };
 
-            // Get file size
             const stat = std.fs.cwd().statFile(dst_path) catch |err| {
                 try self.print("  Failed to stat binary: {any}", .{err});
                 try results.append(.{ .name = target.name, .size = 0, .success = false });
                 continue;
             };
 
+            try self.print("  OK: {s}", .{formatSize(self.allocator, stat.size) catch "?"});
             try results.append(.{ .name = target.name, .size = stat.size, .success = true });
         }
 
         // Print summary
-        try self.print("\n----------------------------------------", .{});
+        try self.print("\n========================================", .{});
         try self.print("Build Results:", .{});
-        try self.print("----------------------------------------", .{});
+        try self.print("========================================", .{});
 
         var total_size: u64 = 0;
         var success_count: usize = 0;
@@ -288,185 +351,170 @@ pub const Cli = struct {
         for (results.items) |r| {
             if (r.success) {
                 const size_str = formatSize(self.allocator, r.size) catch "?";
-                defer if (!std.mem.eql(u8, size_str, "?")) self.allocator.free(size_str);
-                try self.print("  {s}-{s}: {s}", .{ project_name, r.name, size_str });
+                try self.print("  {s}-{s}: {s}", .{ cfg.name, r.name, size_str });
                 total_size += r.size;
                 success_count += 1;
             } else {
-                try self.print("  {s}-{s}: FAILED", .{ project_name, r.name });
+                try self.print("  {s}-{s}: FAILED", .{ cfg.name, r.name });
             }
         }
 
         if (success_count > 0) {
             const total_str = formatSize(self.allocator, total_size) catch "?";
-            defer if (!std.mem.eql(u8, total_str, "?")) self.allocator.free(total_str);
-            try self.print("----------------------------------------", .{});
+            try self.print("========================================", .{});
             try self.print("Total: {s} ({d} platforms)", .{ total_str, success_count });
             try self.print("\nBinaries in: ./dist/", .{});
         }
     }
 
-    fn getProjectName(self: *Self) ![]const u8 {
-        // Try to read from build.zig.zon
-        const zon_content = std.fs.cwd().readFileAlloc(self.allocator, "build.zig.zon", 1024 * 64) catch {
-            return error.NoProjectName;
-        };
-        defer self.allocator.free(zon_content);
-
-        // Simple parse: look for .name = "..."
-        if (std.mem.indexOf(u8, zon_content, ".name = \"")) |start| {
-            const name_start = start + ".name = \"".len;
-            if (std.mem.indexOfPos(u8, zon_content, name_start, "\"")) |end| {
-                return self.allocator.dupe(u8, zon_content[name_start..end]);
-            }
-        }
-
-        return error.NoProjectName;
-    }
-
-    fn formatSize(allocator: std.mem.Allocator, bytes: u64) ![]const u8 {
-        if (bytes >= 1024 * 1024) {
-            const mb = @as(f64, @floatFromInt(bytes)) / (1024 * 1024);
-            return std.fmt.allocPrint(allocator, "{d:.1} MB", .{mb});
-        } else if (bytes >= 1024) {
-            const kb = @as(f64, @floatFromInt(bytes)) / 1024;
-            return std.fmt.allocPrint(allocator, "{d:.0} KB", .{kb});
-        } else {
-            return std.fmt.allocPrint(allocator, "{d} B", .{bytes});
-        }
-    }
-
     fn cmdPlugin(self: *Self) !void {
         if (self.args.len < 3) {
-            try self.printError("Usage: ziew plugin <add|list|remove> [name]", .{});
+            try self.printError("Usage: ziew plugin <add|remove|list> [plugins...]", .{});
             return;
         }
 
         const subcmd = self.args[2];
 
         if (std.mem.eql(u8, subcmd, "add")) {
-            if (self.args.len < 4) {
-                try self.printError("Usage: ziew plugin add <name>", .{});
-                return;
-            }
-            try self.pluginAdd(self.args[3]);
+            try self.pluginAdd();
         } else if (std.mem.eql(u8, subcmd, "list")) {
             try self.pluginList();
         } else if (std.mem.eql(u8, subcmd, "remove")) {
-            if (self.args.len < 4) {
-                try self.printError("Usage: ziew plugin remove <name>", .{});
-                return;
-            }
-            try self.pluginRemove(self.args[3]);
+            try self.pluginRemove();
         } else {
             try self.printError("Unknown plugin subcommand: {s}", .{subcmd});
+            try self.print("Usage: ziew plugin <add|remove|list> [plugins...]", .{});
         }
     }
 
-    fn cmdDocs(self: *Self) !void {
-        var format: []const u8 = "md";
-        for (self.args[2..]) |arg| {
-            if (std.mem.startsWith(u8, arg, "--format=")) {
-                format = arg["--format=".len..];
+    fn pluginAdd(self: *Self) !void {
+        if (self.args.len < 4) {
+            try self.printError("Usage: ziew plugin add <plugin1> [plugin2] ...", .{});
+            try self.print("\nAvailable plugins:", .{});
+            for (config.available_plugins) |info| {
+                try self.print("  {s}: {s}", .{ info.name, info.description });
             }
-        }
-
-        try self.print("Generating documentation ({s})...", .{format});
-        // TODO: Implement docs generation
-        try self.printError("docs command not yet implemented", .{});
-    }
-
-    fn pluginAdd(self: *Self, spec: []const u8) !void {
-        try self.plugin_manager.ensurePluginsDir();
-
-        // Parse the plugin specifier
-        const source = plugin.PluginSource.parse(spec);
-        const display_name = try source.getDisplayName(self.allocator);
-        defer self.allocator.free(display_name);
-
-        const plugin_json_url = try source.getPluginJsonUrl(self.allocator);
-        defer self.allocator.free(plugin_json_url);
-
-        const plugin_name = switch (source.kind) {
-            .official, .third_party => source.name,
-            .direct_url => extractNameFromUrl(source.url.?),
-        };
-
-        const plugin_dir = try self.plugin_manager.getPluginPath(plugin_name);
-        defer self.allocator.free(plugin_dir);
-
-        try self.print("Installing {s} from {s}...", .{ plugin_name, display_name });
-
-        std.fs.makeDirAbsolute(plugin_dir) catch |err| {
-            if (err != error.PathAlreadyExists) return err;
-        };
-
-        try self.print("\n  Fetch plugin.json:", .{});
-        try self.print("    curl -o {s}/plugin.json \"{s}\"", .{ plugin_dir, plugin_json_url });
-        try self.print("\n  Then install files listed in plugin.json", .{});
-
-        try self.print("\n✓ Plugin directory created: {s}", .{plugin_dir});
-    }
-
-    fn extractNameFromUrl(url: []const u8) []const u8 {
-        // Extract the last path segment, removing trailing slashes
-        var end = url.len;
-        while (end > 0 and url[end - 1] == '/') end -= 1;
-
-        var start = end;
-        while (start > 0 and url[start - 1] != '/') start -= 1;
-
-        const segment = url[start..end];
-        // Remove common suffixes like .git
-        if (std.mem.endsWith(u8, segment, ".git")) {
-            return segment[0 .. segment.len - 4];
-        }
-        return segment;
-    }
-
-    fn pluginList(self: *Self) !void {
-        try self.print("Installed plugins:", .{});
-
-        const installed = try self.plugin_manager.listInstalled();
-        defer {
-            for (installed) |name| {
-                self.allocator.free(name);
-            }
-            self.allocator.free(installed);
-        }
-
-        if (installed.len == 0) {
-            try self.print("  (none)", .{});
-        } else {
-            for (installed) |name| {
-                try self.print("  - {s}", .{name});
-            }
-        }
-
-        try self.print("\nOfficial plugins (ziews/plugins):", .{});
-        try self.print("  - lua: LuaJIT scripting for backend logic", .{});
-        try self.print("  - sqlite: SQLite database bindings", .{});
-        try self.print("  - llama: Local LLM inference via llama.cpp", .{});
-        try self.print("  - whisper: Speech-to-text via whisper.cpp", .{});
-
-        try self.print("\nStyle presets (use with --style flag):", .{});
-        for (plugin.style_presets) |preset| {
-            try self.print("  - {s}: {s}", .{ preset.name, preset.description });
-        }
-    }
-
-    fn pluginRemove(self: *Self, name: []const u8) !void {
-        const plugin_dir = try self.plugin_manager.getPluginPath(name);
-        defer self.allocator.free(plugin_dir);
-
-        if (!self.plugin_manager.isInstalled(name)) {
-            try self.printError("Plugin '{s}' is not installed", .{name});
             return;
         }
 
-        // Remove the plugin directory
-        try std.fs.deleteTreeAbsolute(plugin_dir);
-        try self.print("✓ Plugin {s} removed", .{name});
+        // Load existing config
+        var cfg = config.Config.load(self.allocator) catch {
+            try self.printError("No ziew.zon found. Run 'ziew init' first.", .{});
+            return;
+        };
+        defer cfg.deinit();
+
+        // Add each plugin
+        var added: usize = 0;
+        for (self.args[3..]) |plugin_name| {
+            if (!config.isValidPlugin(plugin_name)) {
+                try self.printError("Unknown plugin: {s}", .{plugin_name});
+                continue;
+            }
+
+            if (cfg.hasPlugin(plugin_name)) {
+                try self.print("Plugin '{s}' already enabled", .{plugin_name});
+                continue;
+            }
+
+            try cfg.addPlugin(plugin_name);
+            const info = config.getPluginInfo(plugin_name).?;
+            try self.print("Added: {s} ({s})", .{ plugin_name, info.description });
+            if (!std.mem.eql(u8, info.deps, "none")) {
+                try self.print("  Requires: {s}", .{info.deps});
+            }
+            added += 1;
+        }
+
+        if (added > 0) {
+            try cfg.save();
+            try self.print("\nUpdated ziew.zon", .{});
+        }
+    }
+
+    fn pluginRemove(self: *Self) !void {
+        if (self.args.len < 4) {
+            try self.printError("Usage: ziew plugin remove <plugin1> [plugin2] ...", .{});
+            return;
+        }
+
+        // Load existing config
+        var cfg = config.Config.load(self.allocator) catch {
+            try self.printError("No ziew.zon found.", .{});
+            return;
+        };
+        defer cfg.deinit();
+
+        // Remove each plugin
+        var removed: usize = 0;
+        for (self.args[3..]) |plugin_name| {
+            if (!cfg.hasPlugin(plugin_name)) {
+                try self.print("Plugin '{s}' not enabled", .{plugin_name});
+                continue;
+            }
+
+            try cfg.removePlugin(plugin_name);
+            try self.print("Removed: {s}", .{plugin_name});
+            removed += 1;
+        }
+
+        if (removed > 0) {
+            try cfg.save();
+            try self.print("\nUpdated ziew.zon", .{});
+        }
+    }
+
+    fn pluginList(self: *Self) !void {
+        // Try to load project config
+        var cfg = config.Config.load(self.allocator) catch {
+            // No project config, just list available plugins
+            try self.print("Available plugins:\n", .{});
+            try self.printPluginsByCategory();
+            return;
+        };
+        defer cfg.deinit();
+
+        // Show enabled plugins
+        try self.print("Enabled plugins in {s}:", .{cfg.name});
+        if (cfg.plugins.len == 0) {
+            try self.print("  (none)\n", .{});
+        } else {
+            for (cfg.plugins) |plugin_name| {
+                if (config.getPluginInfo(plugin_name)) |info| {
+                    try self.print("  {s}: {s}", .{ plugin_name, info.description });
+                } else {
+                    try self.print("  {s}", .{plugin_name});
+                }
+            }
+            try self.print("", .{});
+        }
+
+        // Show available plugins
+        try self.print("Available plugins:", .{});
+        try self.printPluginsByCategory();
+    }
+
+    fn printPluginsByCategory(self: *Self) !void {
+        try self.print("\n  Core:", .{});
+        for (config.available_plugins) |info| {
+            if (info.category == .core) {
+                try self.print("    {s}: {s}", .{ info.name, info.description });
+            }
+        }
+
+        try self.print("\n  Input:", .{});
+        for (config.available_plugins) |info| {
+            if (info.category == .input) {
+                try self.print("    {s}: {s}", .{ info.name, info.description });
+            }
+        }
+
+        try self.print("\n  AI:", .{});
+        for (config.available_plugins) |info| {
+            if (info.category == .ai) {
+                try self.print("    {s}: {s}", .{ info.name, info.description });
+            }
+        }
     }
 
     fn initProject(self: *Self, name: []const u8, style: ?[]const u8, template: ?[]const u8) !void {
@@ -491,6 +539,9 @@ pub const Cli = struct {
             break :blk name_lower_buf[0..i];
         };
 
+        // Create ziew.zon
+        try self.createZiewZon(project_dir, name);
+
         if (template) |t| {
             // Use game template
             try self.initFromTemplate(project_dir, name, name_lower, t);
@@ -502,7 +553,27 @@ pub const Cli = struct {
         try self.print("\n✓ Project '{s}' created!", .{name});
         try self.print("\nNext steps:", .{});
         try self.print("  cd {s}", .{name});
-        try self.print("  zig build run", .{});
+        try self.print("  ziew build", .{});
+        try self.print("  ziew dev", .{});
+        try self.print("\nAdd plugins:", .{});
+        try self.print("  ziew plugin add sqlite notify", .{});
+    }
+
+    fn createZiewZon(self: *Self, project_dir: []const u8, name: []const u8) !void {
+        const zon_path = try std.fmt.allocPrint(self.allocator, "{s}/ziew.zon", .{project_dir});
+        defer self.allocator.free(zon_path);
+
+        var file = try std.fs.createFileAbsolute(zon_path, .{});
+        defer file.close();
+
+        try file.writer().print(
+            \\.{{
+            \\    .name = "{s}",
+            \\    .version = "0.1.0",
+            \\    .plugins = .{{}},
+            \\}}
+            \\
+        , .{name});
     }
 
     fn initDefaultProject(self: *Self, project_dir: []const u8, name: []const u8, name_lower: []const u8, style: ?[]const u8) !void {
@@ -617,6 +688,18 @@ pub const Cli = struct {
         try file.writeAll(content[0..write_idx]);
     }
 
+    fn formatSize(allocator: std.mem.Allocator, bytes: u64) ![]const u8 {
+        if (bytes >= 1024 * 1024) {
+            const mb = @as(f64, @floatFromInt(bytes)) / (1024 * 1024);
+            return std.fmt.allocPrint(allocator, "{d:.1} MB", .{mb});
+        } else if (bytes >= 1024) {
+            const kb = @as(f64, @floatFromInt(bytes)) / 1024;
+            return std.fmt.allocPrint(allocator, "{d:.0} KB", .{kb});
+        } else {
+            return std.fmt.allocPrint(allocator, "{d} B", .{bytes});
+        }
+    }
+
     // ============================================
     // EMBEDDED TEMPLATES
     // ============================================
@@ -655,6 +738,18 @@ pub const Cli = struct {
         \\    const target = b.standardTargetOptions(.{});
         \\    const optimize = b.standardOptimizeOption(.{});
         \\    const os = target.result.os.tag;
+        \\
+        \\    // Plugin options (configured via ziew.zon, passed by ziew build)
+        \\    const enable_sqlite = b.option(bool, "sqlite", "Enable SQLite plugin") orelse false;
+        \\    const enable_notify = b.option(bool, "notify", "Enable notifications plugin") orelse false;
+        \\    const enable_keychain = b.option(bool, "keychain", "Enable keychain plugin") orelse false;
+        \\    const enable_hotkeys = b.option(bool, "hotkeys", "Enable global hotkeys plugin") orelse false;
+        \\    const enable_gamepad = b.option(bool, "gamepad", "Enable gamepad plugin") orelse false;
+        \\    const enable_serial = b.option(bool, "serial", "Enable serial port plugin") orelse false;
+        \\    const enable_lua = b.option(bool, "lua", "Enable Lua scripting") orelse false;
+        \\    const enable_ai = b.option(bool, "ai", "Enable AI (llama.cpp)") orelse false;
+        \\    const enable_whisper = b.option(bool, "whisper", "Enable Whisper STT") orelse false;
+        \\    const enable_piper = b.option(bool, "piper", "Enable Piper TTS") orelse false;
         \\
         \\    // Get ziew dependency (includes webview)
         \\    const ziew_dep = b.dependency("ziew", .{
@@ -706,6 +801,37 @@ pub const Cli = struct {
         \\    exe.addIncludePath(webview_dep.path("core/include"));
         \\    exe.linkLibrary(webview_lib);
         \\
+        \\    // Link plugin dependencies
+        \\    if (enable_sqlite) {
+        \\        exe.linkSystemLibrary("sqlite3");
+        \\        exe.root_module.addCMacro("HAS_SQLITE", "1");
+        \\    }
+        \\    if (enable_notify and os == .linux) {
+        \\        exe.linkSystemLibrary("libnotify");
+        \\        exe.root_module.addCMacro("HAS_NOTIFY", "1");
+        \\    }
+        \\    if (enable_keychain and os == .linux) {
+        \\        exe.linkSystemLibrary("libsecret-1");
+        \\        exe.root_module.addCMacro("HAS_KEYCHAIN", "1");
+        \\    }
+        \\    if (enable_hotkeys and os == .linux) {
+        \\        exe.linkSystemLibrary("x11");
+        \\        exe.root_module.addCMacro("HAS_HOTKEYS", "1");
+        \\    }
+        \\    if (enable_gamepad) exe.root_module.addCMacro("HAS_GAMEPAD", "1");
+        \\    if (enable_serial) exe.root_module.addCMacro("HAS_SERIAL", "1");
+        \\    if (enable_lua) {
+        \\        if (os == .linux) exe.linkSystemLibrary("luajit-5.1");
+        \\        exe.root_module.addCMacro("HAS_LUA", "1");
+        \\    }
+        \\    if (enable_ai) {
+        \\        exe.linkSystemLibrary("llama");
+        \\        exe.linkLibC();
+        \\        exe.root_module.addCMacro("HAS_AI", "1");
+        \\    }
+        \\    if (enable_whisper) exe.root_module.addCMacro("HAS_WHISPER", "1");
+        \\    if (enable_piper) exe.root_module.addCMacro("HAS_PIPER", "1");
+        \\
         \\    b.installArtifact(exe);
         \\
         \\    const run_cmd = b.addRunArtifact(exe);
@@ -726,10 +852,10 @@ pub const Cli = struct {
         \\    .dependencies = .{
         \\        .ziew = .{
         \\            .url = "https://github.com/ziews/ziew/archive/refs/heads/main.tar.gz",
-        \\            // .hash = "...",
+        \\            // Run: zig build 2>&1 | grep "hash" to get the hash
         \\        },
         \\    },
-        \\    .paths = .{ "build.zig", "build.zig.zon", "main.zig", "index.html" },
+        \\    .paths = .{ "build.zig", "build.zig.zon", "main.zig", "index.html", "ziew.zon" },
         \\}
     ;
 
@@ -743,7 +869,7 @@ pub const Cli = struct {
         \\            .hash = "1220d05ba59d18f58632664aafc28e4474ae06e173fc925266a663ae3827375777fc",
         \\        },
         \\    },
-        \\    .paths = .{ "build.zig", "build.zig.zon", "main.zig", "index.html", "game.js" },
+        \\    .paths = .{ "build.zig", "build.zig.zon", "main.zig", "index.html", "game.js", "ziew.zon" },
         \\}
     ;
 
@@ -781,26 +907,28 @@ pub const Cli = struct {
             \\Usage: ziew <command> [options]
             \\
             \\Commands:
-            \\  init <name> [--style=<style>]  Create a new project
-            \\  dev                            Start development server
-            \\  build [--release]              Build the project
-            \\  ship [--target=<target>]       Build for all platforms
-            \\  plugin <add|list|remove>       Manage plugins
-            \\  docs [--format=json|md]        Generate API documentation
-            \\  help                           Show this help
-            \\  version                        Show version
+            \\  init <name> [options]       Create a new project
+            \\    --style=<style>           Include CSS framework (pico, water, simple, mvp, tailwind)
+            \\    --template=<template>     Use game template (kaplay, phaser, three)
             \\
-            \\Plugin sources:
-            \\  pico                 Official plugin (ziews/plugins)
-            \\  someuser/theme       Third-party (github.com/someuser/theme)
-            \\  https://...          Direct URL
+            \\  build [--release]           Build the project
+            \\  dev                         Build and run in development mode
+            \\  ship [--target=<target>]    Build for distribution
+            \\
+            \\  plugin add <plugins...>     Enable plugins
+            \\  plugin remove <plugins...>  Disable plugins
+            \\  plugin list                 List available plugins
+            \\
+            \\  help                        Show this help
+            \\  version                     Show version
             \\
             \\Examples:
             \\  ziew init myapp
             \\  ziew init myapp --style=pico
-            \\  ziew plugin add pico
-            \\  ziew plugin add cooldev/dark-mode
-            \\  ziew plugin list
+            \\  ziew init mygame --template=phaser
+            \\  ziew plugin add sqlite notify
+            \\  ziew build --release
+            \\  ziew ship --target=windows
             \\
             \\More info: https://ziew.sh
         , .{});
