@@ -420,8 +420,19 @@ pub const AiBridge = struct {
         };
         var stream_ctx = StreamCtx{ .bridge = self, .id = id_copy };
 
+        // Format as chat - wrap in TinyLlama/Llama chat template
+        const chat_prompt = std.fmt.allocPrint(
+            self.allocator,
+            "<|system|>\nYou are a helpful AI assistant.</s>\n<|user|>\n{s}</s>\n<|assistant|>\n",
+            .{prompt},
+        ) catch {
+            self.streamError(id_copy, "Out of memory");
+            return;
+        };
+        defer self.allocator.free(chat_prompt);
+
         // Stream tokens
-        ai_instance.stream(prompt, max_tokens, streamTokenCallback, @ptrCast(&stream_ctx)) catch {
+        ai_instance.stream(chat_prompt, max_tokens, streamTokenCallback, @ptrCast(&stream_ctx)) catch {
             self.streamError(id_copy, "Stream failed");
             return;
         };

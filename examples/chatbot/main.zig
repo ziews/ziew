@@ -124,6 +124,24 @@ const chat_html: [:0]const u8 =
     \\    }
     \\    button:hover { background: #5a5e79; }
     \\    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    \\    .spinner {
+    \\      display: inline-block;
+    \\      width: 16px;
+    \\      height: 16px;
+    \\      border: 2px solid #666;
+    \\      border-radius: 50%;
+    \\      border-top-color: #00d4ff;
+    \\      animation: spin 1s linear infinite;
+    \\      margin-right: 8px;
+    \\      vertical-align: middle;
+    \\    }
+    \\    @keyframes spin {
+    \\      to { transform: rotate(360deg); }
+    \\    }
+    \\    .thinking {
+    \\      color: #888;
+    \\      font-style: italic;
+    \\    }
     \\  </style>
     \\</head>
     \\<body>
@@ -176,29 +194,50 @@ const chat_html: [:0]const u8 =
     \\      const prompt = promptInput.value.trim();
     \\      if (!prompt || isGenerating) return;
     \\
+    \\      console.log('[chat] Sending:', prompt);
+    \\
     \\      // Add user message
     \\      addMessage(prompt, 'user');
     \\      promptInput.value = '';
     \\
-    \\      // Add assistant message placeholder
-    \\      const assistantDiv = addMessage('', 'assistant');
+    \\      // Add assistant message with spinner
+    \\      const assistantDiv = document.createElement('div');
+    \\      assistantDiv.className = 'message assistant';
+    \\      assistantDiv.innerHTML = '<span class="spinner"></span><span class="thinking">Thinking...</span>';
+    \\      messages.appendChild(assistantDiv);
+    \\      messages.scrollTop = messages.scrollHeight;
     \\
     \\      isGenerating = true;
     \\      sendBtn.disabled = true;
+    \\      sendBtn.textContent = 'Generating...';
     \\
     \\      try {
+    \\        console.log('[chat] Starting stream...');
+    \\        let gotFirst = false;
     \\        // Stream the response
     \\        for await (const token of ziew.ai.stream(prompt, { maxTokens: 256 })) {
+    \\          if (!gotFirst) {
+    \\            assistantDiv.innerHTML = '';
+    \\            gotFirst = true;
+    \\            console.log('[chat] Got first token');
+    \\          }
     \\          assistantDiv.textContent += token;
     \\          messages.scrollTop = messages.scrollHeight;
     \\        }
+    \\        console.log('[chat] Stream complete');
+    \\        if (!gotFirst) {
+    \\          assistantDiv.innerHTML = '<span style="color:#f66">No response received</span>';
+    \\        }
     \\      } catch (err) {
+    \\        console.error('[chat] Error:', err);
+    \\        assistantDiv.innerHTML = '';
     \\        assistantDiv.textContent = 'Error: ' + err.message;
     \\        assistantDiv.style.color = '#f66';
     \\      }
     \\
     \\      isGenerating = false;
     \\      sendBtn.disabled = false;
+    \\      sendBtn.textContent = 'Send';
     \\      promptInput.focus();
     \\    }
     \\
