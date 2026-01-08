@@ -39,6 +39,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
 
+      - name: Install Windows dependencies (WebView2 SDK)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          nuget install Microsoft.Web.WebView2 -Version 1.0.2792.45 -OutputDirectory webview2
+          New-Item -ItemType Directory -Path vendor/WebView2/include -Force
+          Copy-Item webview2/Microsoft.Web.WebView2.*/build/native/include/* vendor/WebView2/include/ -Recurse
+
       - name: Build CLI
         run: zig build -Doptimize=ReleaseSmall
 

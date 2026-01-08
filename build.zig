@@ -19,7 +19,9 @@ pub fn build(b: *std.Build) void {
     const enable_serial = b.option(bool, "serial", "Enable serial port plugin") orelse false;
 
     // Get home directory for local lib/include paths
-    const home = std.posix.getenv("HOME") orelse "/tmp";
+    const home = std.process.getEnvVarOwned(b.allocator, "HOME") catch
+        std.process.getEnvVarOwned(b.allocator, "USERPROFILE") catch
+        "/tmp";
 
     // Get the webview dependency
     const webview_dep = b.dependency("webview", .{});
