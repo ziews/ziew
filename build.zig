@@ -240,6 +240,23 @@ pub fn build(b: *std.Build) void {
         chatbot_step.dependOn(&run_chatbot.step);
     }
 
+    // Kaplay example (game framework - no special deps)
+    const kaplay_exe = b.addExecutable(.{
+        .name = "kaplay",
+        .root_source_file = b.path("examples/kaplay/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    kaplay_exe.root_module.addImport("ziew", &lib.root_module);
+    kaplay_exe.addIncludePath(webview_dep.path("core/include"));
+    kaplay_exe.linkLibrary(webview_lib);
+    b.installArtifact(kaplay_exe);
+
+    const run_kaplay = b.addRunArtifact(kaplay_exe);
+    run_kaplay.step.dependOn(b.getInstallStep());
+    const kaplay_step = b.step("kaplay", "Run the Kaplay game example");
+    kaplay_step.dependOn(&run_kaplay.step);
+
     // Tests
     const lib_tests = b.addTest(.{
         .root_source_file = b.path("src/main.zig"),

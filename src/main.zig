@@ -18,10 +18,6 @@ pub const lua_bridge = @import("lua_bridge.zig");
 pub const ai = @import("ai.zig");
 pub const ai_bridge = @import("ai_bridge.zig");
 
-// Whisper module - optional, build with -Dwhisper=true
-pub const whisper = @import("whisper.zig");
-pub const whisper_bridge = @import("whisper_bridge.zig");
-
 // Piper module - optional, build with -Dpiper=true
 pub const piper = @import("piper.zig");
 pub const piper_bridge = @import("piper_bridge.zig");
