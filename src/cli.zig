@@ -89,22 +89,30 @@ pub const Cli = struct {
 
     fn cmdInit(self: *Self) !void {
         if (self.args.len < 3) {
-            try self.printError("Usage: ziew init <project-name> [--style=<style>]", .{});
+            try self.printError("Usage: ziew init <project-name> [--template=<template>] [--style=<style>]", .{});
+            try self.print("\nTemplates: kaplay, phaser, three", .{});
             return;
         }
 
         const name = self.args[2];
         var style: ?[]const u8 = null;
+        var template: ?[]const u8 = null;
 
         // Parse options
         for (self.args[3..]) |arg| {
             if (std.mem.startsWith(u8, arg, "--style=")) {
                 style = arg["--style=".len..];
+            } else if (std.mem.startsWith(u8, arg, "--template=")) {
+                template = arg["--template=".len..];
             }
         }
 
-        try self.print("Creating project: {s}", .{name});
-        try self.initProject(name, style);
+        if (template) |t| {
+            try self.print("Creating {s} project: {s}", .{ t, name });
+        } else {
+            try self.print("Creating project: {s}", .{name});
+        }
+        try self.initProject(name, style, template);
     }
 
     fn cmdDev(self: *Self) !void {
@@ -461,7 +469,7 @@ pub const Cli = struct {
         try self.print("✓ Plugin {s} removed", .{name});
     }
 
-    fn initProject(self: *Self, name: []const u8, style: ?[]const u8) !void {
+    fn initProject(self: *Self, name: []const u8, style: ?[]const u8, template: ?[]const u8) !void {
         // Create project directory
         try std.fs.cwd().makeDir(name);
 
@@ -471,6 +479,33 @@ pub const Cli = struct {
         const project_dir = try std.fmt.allocPrint(self.allocator, "{s}/{s}", .{ cwd, name });
         defer self.allocator.free(project_dir);
 
+        // Convert name to lowercase for build artifacts
+        var name_lower_buf: [256]u8 = undefined;
+        const name_lower = blk: {
+            var i: usize = 0;
+            for (name) |c| {
+                if (i >= name_lower_buf.len) break;
+                name_lower_buf[i] = if (c >= 'A' and c <= 'Z') c + 32 else if (c == ' ') '_' else c;
+                i += 1;
+            }
+            break :blk name_lower_buf[0..i];
+        };
+
+        if (template) |t| {
+            // Use game template
+            try self.initFromTemplate(project_dir, name, name_lower, t);
+        } else {
+            // Default project (no template)
+            try self.initDefaultProject(project_dir, name, name_lower, style);
+        }
+
+        try self.print("\n✓ Project '{s}' created!", .{name});
+        try self.print("\nNext steps:", .{});
+        try self.print("  cd {s}", .{name});
+        try self.print("  zig build run", .{});
+    }
+
+    fn initDefaultProject(self: *Self, project_dir: []const u8, name: []const u8, name_lower: []const u8, style: ?[]const u8) !void {
         // Create index.html
         const html_path = try std.fmt.allocPrint(self.allocator, "{s}/index.html", .{project_dir});
         defer self.allocator.free(html_path);
@@ -506,99 +541,188 @@ pub const Cli = struct {
         , .{ name, style_link, name });
 
         // Create main.zig
-        const zig_path = try std.fmt.allocPrint(self.allocator, "{s}/main.zig", .{project_dir});
-        defer self.allocator.free(zig_path);
+        try self.writeTemplateFile(project_dir, "main.zig", tpl_default_main, name, name_lower);
 
-        var zig_file = try std.fs.createFileAbsolute(zig_path, .{});
-        defer zig_file.close();
-
-        try zig_file.writer().print(
-            \\const std = @import("std");
-            \\const ziew = @import("ziew");
-            \\
-            \\pub fn main() !void {{
-            \\    var gpa = std.heap.GeneralPurposeAllocator(.){{}}{{}};
-            \\    defer _ = gpa.deinit();
-            \\    const allocator = gpa.allocator();
-            \\
-            \\    var app = try ziew.App.init(allocator, .{{
-            \\        .title = "{s}",
-            \\        .width = 800,
-            \\        .height = 600,
-            \\        .debug = true,
-            \\    }});
-            \\    defer app.deinit();
-            \\
-            \\    app.navigate("file://./index.html");
-            \\    app.run();
-            \\}}
-        , .{name});
-
-        // Create build.zig
-        const build_path = try std.fmt.allocPrint(self.allocator, "{s}/build.zig", .{project_dir});
-        defer self.allocator.free(build_path);
-
-        var build_file = try std.fs.createFileAbsolute(build_path, .{});
-        defer build_file.close();
-
-        try build_file.writer().print(
-            \\const std = @import("std");
-            \\
-            \\pub fn build(b: *std.Build) void {{
-            \\    const target = b.standardTargetOptions(.{{}});
-            \\    const optimize = b.standardOptimizeOption(.{{}});
-            \\
-            \\    const exe = b.addExecutable(.{{
-            \\        .name = "{s}",
-            \\        .root_source_file = b.path("main.zig"),
-            \\        .target = target,
-            \\        .optimize = optimize,
-            \\    }});
-            \\
-            \\    // Add ziew dependency
-            \\    const ziew_dep = b.dependency("ziew", .{{
-            \\        .target = target,
-            \\        .optimize = optimize,
-            \\    }});
-            \\    exe.root_module.addImport("ziew", ziew_dep.module("ziew"));
-            \\
-            \\    b.installArtifact(exe);
-            \\
-            \\    const run_cmd = b.addRunArtifact(exe);
-            \\    run_cmd.step.dependOn(b.getInstallStep());
-            \\
-            \\    const run_step = b.step("run", "Run the app");
-            \\    run_step.dependOn(&run_cmd.step);
-            \\}}
-        , .{name});
-
-        // Create build.zig.zon
-        const zon_path = try std.fmt.allocPrint(self.allocator, "{s}/build.zig.zon", .{project_dir});
-        defer self.allocator.free(zon_path);
-
-        var zon_file = try std.fs.createFileAbsolute(zon_path, .{});
-        defer zon_file.close();
-
-        try zon_file.writer().print(
-            \\.{{
-            \\    .name = "{s}",
-            \\    .version = "0.1.0",
-            \\    .dependencies = .{{
-            \\        .ziew = .{{
-            \\            .url = "https://github.com/ziews/ziew/archive/refs/heads/main.tar.gz",
-            \\            // Run: zig fetch <url> to get the hash
-            \\            .hash = "...",
-            \\        }},
-            \\    }},
-            \\    .paths = .{{ "build.zig", "build.zig.zon", "main.zig", "index.html" }},
-            \\}}
-        , .{name});
-
-        try self.print("\n✓ Project '{s}' created!", .{name});
-        try self.print("\nNext steps:", .{});
-        try self.print("  cd {s}", .{name});
-        try self.print("  zig build run", .{});
+        // Create build files
+        try self.writeTemplateFile(project_dir, "build.zig", tpl_build_zig, name, name_lower);
+        try self.writeTemplateFile(project_dir, "build.zig.zon", tpl_build_zon, name, name_lower);
     }
+
+    fn initFromTemplate(self: *Self, project_dir: []const u8, name: []const u8, name_lower: []const u8, template: []const u8) !void {
+        // Get template files based on template name
+        const files: []const struct { name: []const u8, content: []const u8 } = if (std.mem.eql(u8, template, "kaplay"))
+            &.{
+                .{ .name = "index.html", .content = tpl_kaplay_html },
+                .{ .name = "game.js", .content = tpl_kaplay_js },
+                .{ .name = "main.zig", .content = tpl_kaplay_main },
+            }
+        else if (std.mem.eql(u8, template, "phaser"))
+            &.{
+                .{ .name = "index.html", .content = tpl_phaser_html },
+                .{ .name = "game.js", .content = tpl_phaser_js },
+                .{ .name = "main.zig", .content = tpl_phaser_main },
+            }
+        else if (std.mem.eql(u8, template, "three"))
+            &.{
+                .{ .name = "index.html", .content = tpl_three_html },
+                .{ .name = "game.js", .content = tpl_three_js },
+                .{ .name = "main.zig", .content = tpl_three_main },
+            }
+        else {
+            try self.printError("Unknown template: {s}", .{template});
+            try self.print("Available templates: kaplay, phaser, three", .{});
+            return error.UnknownTemplate;
+        };
+
+        // Write template files
+        for (files) |file| {
+            try self.writeTemplateFile(project_dir, file.name, file.content, name, name_lower);
+        }
+
+        // Write build files
+        try self.writeTemplateFile(project_dir, "build.zig", tpl_build_zig, name, name_lower);
+        try self.writeTemplateFile(project_dir, "build.zig.zon", tpl_build_zon_game, name, name_lower);
+    }
+
+    fn writeTemplateFile(self: *Self, project_dir: []const u8, filename: []const u8, template: []const u8, name: []const u8, name_lower: []const u8) !void {
+        const file_path = try std.fmt.allocPrint(self.allocator, "{s}/{s}", .{ project_dir, filename });
+        defer self.allocator.free(file_path);
+
+        var file = try std.fs.createFileAbsolute(file_path, .{});
+        defer file.close();
+
+        // Replace placeholders
+        var content = try self.allocator.alloc(u8, template.len + name.len * 10);
+        defer self.allocator.free(content);
+
+        var write_idx: usize = 0;
+        var read_idx: usize = 0;
+
+        while (read_idx < template.len) {
+            if (read_idx + 16 <= template.len and std.mem.eql(u8, template[read_idx .. read_idx + 16], "{{PROJECT_NAME}}")) {
+                @memcpy(content[write_idx .. write_idx + name.len], name);
+                write_idx += name.len;
+                read_idx += 16;
+            } else if (read_idx + 22 <= template.len and std.mem.eql(u8, template[read_idx .. read_idx + 22], "{{PROJECT_NAME_LOWER}}")) {
+                @memcpy(content[write_idx .. write_idx + name_lower.len], name_lower);
+                write_idx += name_lower.len;
+                read_idx += 22;
+            } else {
+                content[write_idx] = template[read_idx];
+                write_idx += 1;
+                read_idx += 1;
+            }
+        }
+
+        try file.writeAll(content[0..write_idx]);
+    }
+
+    // ============================================
+    // EMBEDDED TEMPLATES
+    // ============================================
+
+    const tpl_default_main =
+        \\const std = @import("std");
+        \\const ziew = @import("ziew");
+        \\
+        \\pub fn main() !void {
+        \\    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        \\    defer _ = gpa.deinit();
+        \\    const allocator = gpa.allocator();
+        \\
+        \\    var app = try ziew.App.init(allocator, .{
+        \\        .title = "{{PROJECT_NAME}}",
+        \\        .width = 800,
+        \\        .height = 600,
+        \\        .debug = true,
+        \\    });
+        \\    defer app.deinit();
+        \\
+        \\    var cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
+        \\    const cwd = std.fs.cwd().realpath(".", &cwd_buf) catch ".";
+        \\    const html_path = std.fmt.allocPrintZ(allocator, "file://{s}/index.html", .{cwd}) catch return;
+        \\    defer allocator.free(html_path);
+        \\
+        \\    app.navigate(html_path);
+        \\    app.run();
+        \\}
+    ;
+
+    const tpl_build_zig =
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "{{PROJECT_NAME_LOWER}}",
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\
+        \\    const ziew_dep = b.dependency("ziew", .{
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    exe.root_module.addImport("ziew", ziew_dep.module("ziew"));
+        \\
+        \\    b.installArtifact(exe);
+        \\
+        \\    const run_cmd = b.addRunArtifact(exe);
+        \\    run_cmd.step.dependOn(b.getInstallStep());
+        \\    if (b.args) |args| {
+        \\        run_cmd.addArgs(args);
+        \\    }
+        \\
+        \\    const run_step = b.step("run", "Run the app");
+        \\    run_step.dependOn(&run_cmd.step);
+        \\}
+    ;
+
+    const tpl_build_zon =
+        \\.{
+        \\    .name = "{{PROJECT_NAME_LOWER}}",
+        \\    .version = "0.1.0",
+        \\    .dependencies = .{
+        \\        .ziew = .{
+        \\            .url = "https://github.com/ziews/ziew/archive/refs/heads/main.tar.gz",
+        \\            // .hash = "...",
+        \\        },
+        \\    },
+        \\    .paths = .{ "build.zig", "build.zig.zon", "main.zig", "index.html" },
+        \\}
+    ;
+
+    const tpl_build_zon_game =
+        \\.{
+        \\    .name = "{{PROJECT_NAME_LOWER}}",
+        \\    .version = "0.1.0",
+        \\    .dependencies = .{
+        \\        .ziew = .{
+        \\            .url = "https://github.com/ziews/ziew/archive/refs/heads/main.tar.gz",
+        \\            // .hash = "...",
+        \\        },
+        \\    },
+        \\    .paths = .{ "build.zig", "build.zig.zon", "main.zig", "index.html", "game.js" },
+        \\}
+    ;
+
+    // Kaplay templates
+    const tpl_kaplay_html = @embedFile("templates/kaplay/index.html");
+    const tpl_kaplay_js = @embedFile("templates/kaplay/game.js");
+    const tpl_kaplay_main = @embedFile("templates/kaplay/main.zig");
+
+    // Phaser templates
+    const tpl_phaser_html = @embedFile("templates/phaser/index.html");
+    const tpl_phaser_js = @embedFile("templates/phaser/game.js");
+    const tpl_phaser_main = @embedFile("templates/phaser/main.zig");
+
+    // Three.js templates
+    const tpl_three_html = @embedFile("templates/three/index.html");
+    const tpl_three_js = @embedFile("templates/three/game.js");
+    const tpl_three_main = @embedFile("templates/three/main.zig");
 
     fn print(self: *Self, comptime fmt: []const u8, args: anytype) !void {
         _ = self;
