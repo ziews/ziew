@@ -62,9 +62,67 @@ pub const ziew_js: [:0]const u8 =
     \\
     \\    // Namespaces for native APIs
     \\    fs: {},
-    \\    ai: {},
     \\    shell: {},
     \\    dialog: {},
+    \\
+    \\    // AI namespace - local LLM inference
+    \\    ai: {
+    \\      // Generate text completion (returns full response)
+    \\      // Options: { maxTokens: 256, temperature: 0.7 }
+    \\      complete: function(prompt, options = {}) {
+    \\        return new Promise((resolve, reject) => {
+    \\          const id = String(nextId++);
+    \\          pending.set(id, { resolve, reject });
+    \\          if (window.__ziew_ai_complete) {
+    \\            window.__ziew_ai_complete(JSON.stringify({ id, prompt, ...options }));
+    \\          } else {
+    \\            pending.delete(id);
+    \\            reject(new Error('AI not available - build with -Dai=true'));
+    \\          }
+    \\        });
+    \\      },
+    \\
+    \\      // Stream text generation (async generator)
+    \\      // Usage: for await (const token of ziew.ai.stream('Hello')) { ... }
+    \\      stream: async function*(prompt, options = {}) {
+    \\        if (!window.__ziew_ai_stream) {
+    \\          throw new Error('AI not available - build with -Dai=true');
+    \\        }
+    \\
+    \\        const id = String(nextId++);
+    \\        const stream = {
+    \\          queue: [],
+    \\          done: false,
+    \\          error: null,
+    \\          resolver: null
+    \\        };
+    \\        streams.set(id, stream);
+    \\
+    \\        window.__ziew_ai_stream(JSON.stringify({ id, prompt, ...options }));
+    \\
+    \\        try {
+    \\          while (!stream.done || stream.queue.length > 0) {
+    \\            if (stream.error) {
+    \\              throw new Error(stream.error);
+    \\            }
+    \\            if (stream.queue.length > 0) {
+    \\              yield stream.queue.shift();
+    \\            } else if (!stream.done) {
+    \\              await new Promise(r => stream.resolver = r);
+    \\            }
+    \\          }
+    \\        } finally {
+    \\          streams.delete(id);
+    \\        }
+    \\      },
+    \\
+    \\      // Check if AI is available
+    \\      available: function() {
+    \\        return !!window.__ziew_ai_complete;
+    \\      }
+    \\    },
+    \\
+    \\    // Lua namespace - backend scripting
     \\    lua: {
     \\      // Call a Lua function by name with arguments
     \\      // Returns a promise that resolves with the result
@@ -79,6 +137,11 @@ pub const ziew_js: [:0]const u8 =
     \\            reject(new Error('Lua not available - build with -Dlua=true'));
     \\          }
     \\        });
+    \\      },
+    \\
+    \\      // Check if Lua is available
+    \\      available: function() {
+    \\        return !!window.__ziew_lua_call;
     \\      }
     \\    },
     \\  };

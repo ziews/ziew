@@ -15,6 +15,7 @@ pub const lua = @import("lua.zig");
 
 // AI module - optional, build with -Dai=true
 pub const ai = @import("ai.zig");
+pub const ai_bridge = @import("ai_bridge.zig");
 
 /// Ziew version
 pub const version = "0.2.0";

@@ -42,7 +42,7 @@ pub fn main() !void {
     std.debug.print("[ai] Generating...\n\n", .{});
 
     // Streaming output
-    ai.stream(prompt, 100, printToken) catch |err| {
+    ai.stream(prompt, 100, printToken, null) catch |err| {
         std.debug.print("\n[ai] Generation error: {any}\n", .{err});
         return;
     };
@@ -50,6 +50,6 @@ pub fn main() !void {
     std.debug.print("\n\n[ai] Done!\n", .{});
 }
 
-fn printToken(token: []const u8) void {
+fn printToken(token: []const u8, _: ?*anyopaque) void {
     std.io.getStdOut().writer().writeAll(token) catch {};
 }

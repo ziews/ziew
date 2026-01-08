@@ -5,12 +5,11 @@
 //!
 //! ## Installation
 //!
-//! Ubuntu/Debian:
+//! llama.cpp uses CMake:
 //!   git clone https://github.com/ggerganov/llama.cpp
-//!   cd llama.cpp && make && sudo make install
-//!
-//! Or with CMake:
-//!   cmake -B build && cmake --build build
+//!   cd llama.cpp
+//!   cmake -B build
+//!   cmake --build build
 //!   sudo cmake --install build
 //!
 //! ## Models
@@ -186,11 +185,13 @@ pub const Ai = struct {
     }
 
     /// Generate text with streaming callback
+    /// The callback receives each token and an optional context pointer
     pub fn stream(
         self: *Self,
         prompt: []const u8,
         max_tokens: u32,
-        callback: *const fn ([]const u8) void,
+        callback: *const fn ([]const u8, ?*anyopaque) void,
+        ctx: ?*anyopaque,
     ) !void {
         // Tokenize prompt
         const prompt_z = try self.allocator.dupeZ(u8, prompt);
@@ -247,7 +248,7 @@ pub const Ai = struct {
             var buf: [256]u8 = undefined;
             const n = c.llama_token_to_piece(self.vocab, new_token, &buf, buf.len, 0, true);
             if (n > 0) {
-                callback(buf[0..@intCast(n)]);
+                callback(buf[0..@intCast(n)], ctx);
             }
 
             // Next iteration

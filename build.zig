@@ -163,6 +163,25 @@ pub fn build(b: *std.Build) void {
         run_ai.step.dependOn(b.getInstallStep());
         const ai_step = b.step("ai", "Run the AI example");
         ai_step.dependOn(&run_ai.step);
+
+        // Chatbot example (webview + AI)
+        const chatbot_exe = b.addExecutable(.{
+            .name = "chatbot",
+            .root_source_file = b.path("examples/chatbot/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        chatbot_exe.root_module.addImport("ziew", &lib.root_module);
+        chatbot_exe.addIncludePath(webview_dep.path("core/include"));
+        chatbot_exe.linkLibrary(webview_lib);
+        chatbot_exe.linkSystemLibrary("llama");
+        chatbot_exe.linkLibC();
+        b.installArtifact(chatbot_exe);
+
+        const run_chatbot = b.addRunArtifact(chatbot_exe);
+        run_chatbot.step.dependOn(b.getInstallStep());
+        const chatbot_step = b.step("chatbot", "Run the chatbot example");
+        chatbot_step.dependOn(&run_chatbot.step);
     }
 
     // Tests
