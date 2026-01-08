@@ -17,6 +17,8 @@ pub fn build(b: *std.Build) void {
     const enable_hotkeys = b.option(bool, "hotkeys", "Enable global hotkeys plugin (requires libx11-dev)") orelse false;
     const enable_gamepad = b.option(bool, "gamepad", "Enable gamepad plugin") orelse false;
     const enable_serial = b.option(bool, "serial", "Enable serial port plugin") orelse false;
+    const enable_steamworks = b.option(bool, "steamworks", "Enable Steam integration (requires Steamworks SDK)") orelse false;
+    _ = enable_steamworks; // TODO: Link steam_api when enabled
 
     // Get home directory for local lib/include paths
     const home = std.process.getEnvVarOwned(b.allocator, "HOME") catch

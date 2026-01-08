@@ -21,6 +21,7 @@ pub const hotkeys = @import("hotkeys.zig");
 pub const menu = @import("menu.zig");
 pub const gamepad = @import("gamepad.zig");
 pub const serial = @import("serial.zig");
+pub const steamworks = @import("steamworks.zig");
 
 /// Platform detection
 pub const Platform = enum {
@@ -66,4 +67,5 @@ pub fn deinitAll() void {
     hotkeys.deinit();
     tray.destroy();
     gamepad.deinit();
+    steamworks.deinit();
 }

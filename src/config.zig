@@ -275,6 +275,7 @@ pub const PluginInfo = struct {
         core,
         input,
         ai,
+        platform,
     };
 };
 
@@ -292,6 +293,8 @@ pub const available_plugins = [_]PluginInfo{
     .{ .name = "ai", .description = "Local LLM (llama.cpp)", .deps = "llama.cpp", .category = .ai },
     .{ .name = "whisper", .description = "Speech-to-text", .deps = "whisper.cpp", .category = .ai },
     .{ .name = "piper", .description = "Text-to-speech", .deps = "piper CLI", .category = .ai },
+    // Platform
+    .{ .name = "steamworks", .description = "Steam integration", .deps = "Steamworks SDK", .category = .platform },
 };
 
 pub fn getPluginInfo(name: []const u8) ?PluginInfo {

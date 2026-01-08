@@ -515,6 +515,13 @@ pub const Cli = struct {
                 try self.print("    {s}: {s}", .{ info.name, info.description });
             }
         }
+
+        try self.print("\n  Platform:", .{});
+        for (config.available_plugins) |info| {
+            if (info.category == .platform) {
+                try self.print("    {s}: {s}", .{ info.name, info.description });
+            }
+        }
     }
 
     fn initProject(self: *Self, name: []const u8, style: ?[]const u8, template: ?[]const u8) !void {
