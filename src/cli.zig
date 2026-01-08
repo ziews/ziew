@@ -127,9 +127,205 @@ pub const Cli = struct {
     }
 
     fn cmdShip(self: *Self) !void {
-        try self.print("Building for all platforms...", .{});
-        // TODO: Implement ship command (cross-compilation)
-        try self.printError("ship command not yet implemented", .{});
+        // Parse options
+        var targets_specified = false;
+        var build_windows = false;
+        var build_macos_x64 = false;
+        var build_macos_arm = false;
+        var build_linux = false;
+
+        for (self.args[2..]) |arg| {
+            if (std.mem.startsWith(u8, arg, "--target=")) {
+                targets_specified = true;
+                const target = arg["--target=".len..];
+                if (std.mem.eql(u8, target, "windows")) {
+                    build_windows = true;
+                } else if (std.mem.eql(u8, target, "macos") or std.mem.eql(u8, target, "macos-x64")) {
+                    build_macos_x64 = true;
+                } else if (std.mem.eql(u8, target, "macos-arm64")) {
+                    build_macos_arm = true;
+                } else if (std.mem.eql(u8, target, "linux")) {
+                    build_linux = true;
+                } else if (std.mem.eql(u8, target, "all")) {
+                    build_windows = true;
+                    build_macos_x64 = true;
+                    build_macos_arm = true;
+                    build_linux = true;
+                } else {
+                    try self.printError("Unknown target: {s}", .{target});
+                    try self.print("Valid targets: windows, macos, macos-x64, macos-arm64, linux, all", .{});
+                    return;
+                }
+            }
+        }
+
+        // Default: build for all platforms
+        if (!targets_specified) {
+            build_windows = true;
+            build_macos_x64 = true;
+            build_macos_arm = true;
+            build_linux = true;
+        }
+
+        // Check if build.zig exists
+        std.fs.cwd().access("build.zig", .{}) catch {
+            try self.printError("No build.zig found in current directory", .{});
+            try self.print("Run this command from a ziew project directory", .{});
+            return;
+        };
+
+        // Get project name from build.zig.zon if it exists
+        const project_name = self.getProjectName() catch "app";
+
+        try self.print("Building {s} for distribution...\n", .{project_name});
+
+        // Create dist directory
+        std.fs.cwd().makeDir("dist") catch |err| {
+            if (err != error.PathAlreadyExists) {
+                try self.printError("Failed to create dist directory: {any}", .{err});
+                return;
+            }
+        };
+
+        const Target = struct {
+            name: []const u8,
+            zig_target: []const u8,
+            extension: []const u8,
+        };
+
+        var targets = std.ArrayList(Target).init(self.allocator);
+        defer targets.deinit();
+
+        if (build_windows) {
+            try targets.append(.{ .name = "windows-x64", .zig_target = "x86_64-windows", .extension = ".exe" });
+        }
+        if (build_macos_x64) {
+            try targets.append(.{ .name = "macos-x64", .zig_target = "x86_64-macos", .extension = "" });
+        }
+        if (build_macos_arm) {
+            try targets.append(.{ .name = "macos-arm64", .zig_target = "aarch64-macos", .extension = "" });
+        }
+        if (build_linux) {
+            try targets.append(.{ .name = "linux-x64", .zig_target = "x86_64-linux", .extension = "" });
+        }
+
+        var results = std.ArrayList(struct { name: []const u8, size: u64, success: bool }).init(self.allocator);
+        defer results.deinit();
+
+        for (targets.items) |target| {
+            try self.print("Building for {s}...", .{target.name});
+
+            // Run zig build with target
+            const result = std.process.Child.run(.{
+                .allocator = self.allocator,
+                .argv = &.{
+                    "zig",
+                    "build",
+                    std.fmt.allocPrint(self.allocator, "-Dtarget={s}", .{target.zig_target}) catch continue,
+                    "-Doptimize=ReleaseSmall",
+                },
+                .cwd = null,
+            }) catch |err| {
+                try self.print("  Failed to run zig build: {any}", .{err});
+                try results.append(.{ .name = target.name, .size = 0, .success = false });
+                continue;
+            };
+            defer self.allocator.free(result.stdout);
+            defer self.allocator.free(result.stderr);
+
+            if (result.term.Exited != 0) {
+                try self.print("  Build failed for {s}", .{target.name});
+                if (result.stderr.len > 0) {
+                    try self.print("  {s}", .{result.stderr});
+                }
+                try results.append(.{ .name = target.name, .size = 0, .success = false });
+                continue;
+            }
+
+            // Find and copy the built binary
+            const src_path = std.fmt.allocPrint(self.allocator, "zig-out/bin/{s}{s}", .{ project_name, target.extension }) catch continue;
+            defer self.allocator.free(src_path);
+
+            const dst_name = std.fmt.allocPrint(self.allocator, "{s}-{s}{s}", .{ project_name, target.name, target.extension }) catch continue;
+            defer self.allocator.free(dst_name);
+
+            const dst_path = std.fmt.allocPrint(self.allocator, "dist/{s}", .{dst_name}) catch continue;
+            defer self.allocator.free(dst_path);
+
+            // Copy file to dist
+            std.fs.cwd().copyFile(src_path, std.fs.cwd(), dst_path, .{}) catch |err| {
+                try self.print("  Failed to copy binary: {any}", .{err});
+                try results.append(.{ .name = target.name, .size = 0, .success = false });
+                continue;
+            };
+
+            // Get file size
+            const stat = std.fs.cwd().statFile(dst_path) catch |err| {
+                try self.print("  Failed to stat binary: {any}", .{err});
+                try results.append(.{ .name = target.name, .size = 0, .success = false });
+                continue;
+            };
+
+            try results.append(.{ .name = target.name, .size = stat.size, .success = true });
+        }
+
+        // Print summary
+        try self.print("\n----------------------------------------", .{});
+        try self.print("Build Results:", .{});
+        try self.print("----------------------------------------", .{});
+
+        var total_size: u64 = 0;
+        var success_count: usize = 0;
+
+        for (results.items) |r| {
+            if (r.success) {
+                const size_str = formatSize(self.allocator, r.size) catch "?";
+                defer if (!std.mem.eql(u8, size_str, "?")) self.allocator.free(size_str);
+                try self.print("  {s}-{s}: {s}", .{ project_name, r.name, size_str });
+                total_size += r.size;
+                success_count += 1;
+            } else {
+                try self.print("  {s}-{s}: FAILED", .{ project_name, r.name });
+            }
+        }
+
+        if (success_count > 0) {
+            const total_str = formatSize(self.allocator, total_size) catch "?";
+            defer if (!std.mem.eql(u8, total_str, "?")) self.allocator.free(total_str);
+            try self.print("----------------------------------------", .{});
+            try self.print("Total: {s} ({d} platforms)", .{ total_str, success_count });
+            try self.print("\nBinaries in: ./dist/", .{});
+        }
+    }
+
+    fn getProjectName(self: *Self) ![]const u8 {
+        // Try to read from build.zig.zon
+        const zon_content = std.fs.cwd().readFileAlloc(self.allocator, "build.zig.zon", 1024 * 64) catch {
+            return error.NoProjectName;
+        };
+        defer self.allocator.free(zon_content);
+
+        // Simple parse: look for .name = "..."
+        if (std.mem.indexOf(u8, zon_content, ".name = \"")) |start| {
+            const name_start = start + ".name = \"".len;
+            if (std.mem.indexOfPos(u8, zon_content, name_start, "\"")) |end| {
+                return self.allocator.dupe(u8, zon_content[name_start..end]);
+            }
+        }
+
+        return error.NoProjectName;
+    }
+
+    fn formatSize(allocator: std.mem.Allocator, bytes: u64) ![]const u8 {
+        if (bytes >= 1024 * 1024) {
+            const mb = @as(f64, @floatFromInt(bytes)) / (1024 * 1024);
+            return std.fmt.allocPrint(allocator, "{d:.1} MB", .{mb});
+        } else if (bytes >= 1024) {
+            const kb = @as(f64, @floatFromInt(bytes)) / 1024;
+            return std.fmt.allocPrint(allocator, "{d:.0} KB", .{kb});
+        } else {
+            return std.fmt.allocPrint(allocator, "{d} B", .{bytes});
+        }
     }
 
     fn cmdPlugin(self: *Self) !void {

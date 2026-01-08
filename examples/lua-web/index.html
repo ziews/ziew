@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Ziew Lua Demo</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #eee;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 1.5rem;
+      background: linear-gradient(135deg, #00d4ff, #7b2ff7);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .demo {
+      background: rgba(18, 18, 26, 0.6);
+      border: 1px solid #333;
+      border-radius: 12px;
+      padding: 1.25rem;
+      margin-bottom: 1rem;
+    }
+    .demo h2 {
+      font-size: 1rem;
+      color: #00d4ff;
+      margin-bottom: 0.75rem;
+    }
+    .row {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+    input, select {
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #444;
+      border-radius: 6px;
+      background: #1a1a2e;
+      color: #eee;
+      font-size: 0.9rem;
+    }
+    input { flex: 1; }
+    button {
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 6px;
+      background: #4a4e69;
+      color: #eee;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    button:hover { background: #5a5e79; }
+    .result {
+      padding: 0.75rem;
+      background: rgba(0, 212, 255, 0.1);
+      border: 1px solid rgba(0, 212, 255, 0.2);
+      border-radius: 6px;
+      font-family: monospace;
+      color: #00d4ff;
+    }
+    .status {
+      font-size: 0.8rem;
+      color: #888;
+      margin-top: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Lua Scripting Demo</h1>
+
+  <div class="demo">
+    <h2>Greeting</h2>
+    <div class="row">
+      <input type="text" id="name" placeholder="Enter your name" value="World">
+      <button onclick="greet()">Greet</button>
+    </div>
+    <div class="result" id="greet-result">-</div>
+  </div>
+
+  <div class="demo">
+    <h2>Calculator</h2>
+    <div class="row">
+      <input type="number" id="num1" placeholder="A" value="10">
+      <select id="op">
+        <option>+</option>
+        <option>-</option>
+        <option>*</option>
+        <option>/</option>
+      </select>
+      <input type="number" id="num2" placeholder="B" value="5">
+      <button onclick="calculate()">Calculate</button>
+    </div>
+    <div class="result" id="calc-result">-</div>
+  </div>
+
+  <div class="demo">
+    <h2>Fibonacci</h2>
+    <div class="row">
+      <input type="number" id="fib-n" placeholder="N" value="10">
+      <button onclick="fibonacci()">Compute</button>
+    </div>
+    <div class="result" id="fib-result">-</div>
+  </div>
+
+  <div class="status" id="status">
+    Checking Lua availability...
+  </div>
+
+  <script>
+    // Check Lua availability
+    document.getElementById('status').textContent =
+      ziew.lua.available() ? 'Lua is ready!' : 'Lua not available (build with -Dlua=true)';
+
+    async function greet() {
+      const name = document.getElementById('name').value;
+      try {
+        const result = await ziew.lua.call('greet', name);
+        document.getElementById('greet-result').textContent = result;
+      } catch (e) {
+        document.getElementById('greet-result').textContent = 'Error: ' + e.message;
+      }
+    }
+
+    async function calculate() {
+      const a = document.getElementById('num1').value;
+      const b = document.getElementById('num2').value;
+      const op = document.getElementById('op').value;
+      try {
+        const result = await ziew.lua.call('calculate', a, b, op);
+        document.getElementById('calc-result').textContent = `${a} ${op} ${b} = ${result}`;
+      } catch (e) {
+        document.getElementById('calc-result').textContent = 'Error: ' + e.message;
+      }
+    }
+
+    async function fibonacci() {
+      const n = document.getElementById('fib-n').value;
+      try {
+        const result = await ziew.lua.call('fibonacci', n);
+        document.getElementById('fib-result').textContent = `fib(${n}) = ${result}`;
+      } catch (e) {
+        document.getElementById('fib-result').textContent = 'Error: ' + e.message;
+      }
+    }
+  </script>
+</body>
+</html>
