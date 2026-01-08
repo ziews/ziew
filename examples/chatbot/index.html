@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Ziew Voice Chatbot</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    #header {
+      padding: 0.75rem 1rem;
+      background: #16213e;
+      border-bottom: 1px solid #333;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    #header h1 {
+      font-size: 1rem;
+      background: linear-gradient(135deg, #00d4ff, #7b2ff7);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    #model-info {
+      font-size: 0.75rem;
+      color: #666;
+    }
+    #voice-select {
+      padding: 0.25rem 0.5rem;
+      border: 1px solid #333;
+      border-radius: 4px;
+      background: #1a1a2e;
+      color: #aaa;
+      font-size: 0.75rem;
+    }
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem;
+    }
+    .message {
+      margin: 0.5rem 0;
+      padding: 0.75rem 1rem;
+      border-radius: 1rem;
+      max-width: 80%;
+    }
+    .user {
+      background: #4a4e69;
+      margin-left: auto;
+    }
+    .assistant {
+      background: #22223b;
+    }
+    .system {
+      background: transparent;
+      color: #666;
+      font-size: 0.875rem;
+      text-align: center;
+      max-width: 100%;
+    }
+    #input-area {
+      display: flex;
+      padding: 1rem;
+      gap: 0.5rem;
+      background: #16213e;
+      align-items: center;
+    }
+    #prompt {
+      flex: 1;
+      padding: 0.75rem 1rem;
+      border: none;
+      border-radius: 1.5rem;
+      background: #1a1a2e;
+      color: #eee;
+      font-size: 1rem;
+    }
+    #prompt:focus { outline: 2px solid #4a4e69; }
+    button {
+      padding: 0.75rem 1rem;
+      border: none;
+      border-radius: 1.5rem;
+      background: #4a4e69;
+      color: #eee;
+      cursor: pointer;
+      font-size: 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    button:hover { background: #5a5e79; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #666;
+      border-radius: 50%;
+      border-top-color: #00d4ff;
+      animation: spin 1s linear infinite;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .thinking {
+      color: #888;
+      font-style: italic;
+    }
+    .tts-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.75rem;
+      color: #888;
+    }
+    .tts-toggle input {
+      cursor: pointer;
+    }
+    .sentence {
+      transition: all 0.2s;
+    }
+    .sentence.speaking {
+      color: #ffd700;
+      font-weight: bold;
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div id="header">
+    <h1>Ziew Voice Chatbot</h1>
+    <div class="header-right">
+      <select id="voice-select" title="TTS Voice">
+        <option value="">No TTS</option>
+      </select>
+      <label class="tts-toggle">
+        <input type="checkbox" id="auto-speak" checked>
+        Auto-speak
+      </label>
+      <span id="model-info">Loading...</span>
+    </div>
+  </div>
+  <div id="messages"></div>
+  <div id="input-area">
+    <input type="text" id="prompt" placeholder="Type a message..." autofocus>
+    <button id="send">Send</button>
+  </div>
+
+  <script>
+    const messages = document.getElementById('messages');
+    const promptInput = document.getElementById('prompt');
+    const sendBtn = document.getElementById('send');
+    const modelInfo = document.getElementById('model-info');
+    const voiceSelect = document.getElementById('voice-select');
+    const autoSpeak = document.getElementById('auto-speak');
+
+    let isGenerating = false;
+
+    function addMessage(text, role) {
+      const div = document.createElement('div');
+      div.className = 'message ' + role;
+      div.textContent = text;
+      messages.appendChild(div);
+      messages.scrollTop = messages.scrollHeight;
+      return div;
+    }
+
+    async function init() {
+      // Wait a moment for native bindings to be ready
+      await new Promise(r => setTimeout(r, 100));
+
+      // Check for available LLM models
+      try {
+        const models = await ziew.ai.models();
+        if (models.length === 0) {
+          modelInfo.textContent = 'No models';
+          addMessage('No LLM models found in ~/.ziew/models/', 'system');
+        } else {
+          modelInfo.textContent = models[0].split('/').pop();
+          addMessage('LLM: ' + models[0].split('/').pop(), 'system');
+        }
+      } catch (e) {
+        modelInfo.textContent = 'No AI';
+        addMessage('AI not available - build with -Dai=true', 'system');
+      }
+
+      // Load available voices
+      try {
+        const voices = await ziew.ai.voices();
+        if (voices && voices.length > 0) {
+          voices.forEach(voice => {
+            const opt = document.createElement('option');
+            opt.value = voice;
+            opt.textContent = voice;
+            voiceSelect.appendChild(opt);
+          });
+          voiceSelect.value = voices[0];
+          addMessage('TTS: ' + voices[0], 'system');
+        }
+      } catch (e) {
+        console.log('TTS not available:', e);
+      }
+    }
+
+    // Speech queue for streaming TTS
+    const speechQueue = [];
+    let isSpeaking = false;
+    let currentSpeakingId = null;
+
+    function queueSpeech(text, sentenceId) {
+      if (!autoSpeak.checked || !voiceSelect.value) return;
+      speechQueue.push({ text, id: sentenceId });
+      if (!isSpeaking) processQueue();
+    }
+
+    function highlightSentence(id) {
+      // Remove previous highlight
+      if (currentSpeakingId) {
+        const prev = document.getElementById(currentSpeakingId);
+        if (prev) prev.classList.remove('speaking');
+      }
+      // Add new highlight
+      currentSpeakingId = id;
+      if (id) {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('speaking');
+      }
+    }
+
+    async function processQueue() {
+      if (speechQueue.length === 0) {
+        isSpeaking = false;
+        highlightSentence(null);
+        return;
+      }
+      isSpeaking = true;
+      const { text, id } = speechQueue.shift();
+      try {
+        const audioUrl = await ziew.ai.speak(text);
+        const audio = new Audio(audioUrl);
+        audio.onended = () => processQueue();
+        audio.onerror = () => processQueue();
+        highlightSentence(id);
+        audio.play();
+      } catch (e) {
+        console.log('TTS failed:', e);
+        processQueue();
+      }
+    }
+
+    let sentenceCounter = 0;
+
+    async function sendMessage() {
+      const prompt = promptInput.value.trim();
+      if (!prompt || isGenerating) return;
+
+      addMessage(prompt, 'user');
+      promptInput.value = '';
+
+      const assistantDiv = document.createElement('div');
+      assistantDiv.className = 'message assistant';
+      assistantDiv.innerHTML = '<span class="spinner"></span><span class="thinking">Thinking...</span>';
+      messages.appendChild(assistantDiv);
+      messages.scrollTop = messages.scrollHeight;
+
+      isGenerating = true;
+      sendBtn.disabled = true;
+
+      let sentenceBuffer = '';
+      let sentences = [];
+      const sentenceEnders = /[.!?]\s/;
+
+      try {
+        let gotFirst = false;
+        for await (const token of ziew.ai.stream(prompt, { maxTokens: 256 })) {
+          if (!gotFirst) {
+            assistantDiv.innerHTML = '';
+            gotFirst = true;
+          }
+          sentenceBuffer += token;
+
+          // Check for complete sentence - split at punctuation
+          const match = sentenceBuffer.match(/^(.*?[.!?])\s(.*)$/s);
+          if (match) {
+            const sentence = match[1].replace(/\s+/g, ' ').trim();
+            sentenceBuffer = match[2]; // Keep the rest
+            if (sentence) {
+              const id = 'sentence-' + (++sentenceCounter);
+              sentences.push({ text: sentence, id });
+              queueSpeech(sentence, id);
+            }
+          }
+
+          // Update display with sentence spans (normalize whitespace)
+          const currentText = sentenceBuffer.replace(/\s+/g, ' ');
+          assistantDiv.innerHTML = sentences.map(s =>
+            `<span id="${s.id}" class="sentence">${s.text}</span>`
+          ).join(' ') + (currentText ? ' ' + currentText : '');
+          messages.scrollTop = messages.scrollHeight;
+        }
+
+        // Handle remaining text
+        const remaining = sentenceBuffer.replace(/\s+/g, ' ').trim();
+        if (remaining) {
+          const id = 'sentence-' + (++sentenceCounter);
+          sentences.push({ text: remaining, id });
+          queueSpeech(remaining, id);
+          assistantDiv.innerHTML = sentences.map(s =>
+            `<span id="${s.id}" class="sentence">${s.text}</span>`
+          ).join(' ');
+        }
+
+        if (!gotFirst) {
+          assistantDiv.innerHTML = '<span style="color:#f66">No response</span>';
+        }
+      } catch (err) {
+        assistantDiv.textContent = 'Error: ' + err.message;
+        assistantDiv.style.color = '#f66';
+      }
+
+      isGenerating = false;
+      sendBtn.disabled = false;
+      promptInput.focus();
+    }
+
+    // Event listeners
+    sendBtn.addEventListener('click', sendMessage);
+    promptInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') sendMessage();
+    });
+
+    // Voice selection
+    voiceSelect.addEventListener('change', async () => {
+      if (voiceSelect.value) {
+        try {
+          await ziew.ai.setVoice(voiceSelect.value);
+        } catch (e) {
+          console.log('Failed to set voice:', e);
+        }
+      }
+    });
+
+    init();
+  </script>
+</body>
+</html>

@@ -60,7 +60,64 @@
 
     // Namespaces for native APIs
     fs: {},
-    ai: {},
+    ai: {
+      // LLM functions (bound by ai_bridge)
+      // models(), complete(), stream() are set up by native code
+
+      // STT function (whisper)
+      transcribe: function(audioBase64) {
+        return new Promise((resolve, reject) => {
+          const id = String(nextId++);
+          pending.set(id, { resolve, reject });
+          if (typeof __ziew_ai_transcribe !== 'undefined') {
+            __ziew_ai_transcribe(JSON.stringify({ id, audio: audioBase64 }));
+          } else {
+            pending.delete(id);
+            reject(new Error('Whisper not available - build with -Dwhisper=true'));
+          }
+        });
+      },
+
+      // TTS functions (piper)
+      speak: function(text) {
+        return new Promise((resolve, reject) => {
+          const id = String(nextId++);
+          pending.set(id, { resolve, reject });
+          if (typeof __ziew_ai_speak !== 'undefined') {
+            __ziew_ai_speak(JSON.stringify({ id, text: text }));
+          } else {
+            pending.delete(id);
+            reject(new Error('Piper not available - build with -Dpiper=true'));
+          }
+        });
+      },
+
+      voices: function() {
+        return new Promise((resolve, reject) => {
+          const id = String(nextId++);
+          pending.set(id, { resolve, reject });
+          if (typeof __ziew_ai_voices !== 'undefined') {
+            __ziew_ai_voices(JSON.stringify({ id }));
+          } else {
+            pending.delete(id);
+            resolve([]); // Return empty array if not available
+          }
+        });
+      },
+
+      setVoice: function(voiceName) {
+        return new Promise((resolve, reject) => {
+          const id = String(nextId++);
+          pending.set(id, { resolve, reject });
+          if (typeof __ziew_ai_set_voice !== 'undefined') {
+            __ziew_ai_set_voice(JSON.stringify({ id, voice: voiceName }));
+          } else {
+            pending.delete(id);
+            reject(new Error('Piper not available'));
+          }
+        });
+      }
+    },
     shell: {},
     dialog: {},
     lua: {},

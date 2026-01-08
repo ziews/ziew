@@ -150,6 +150,64 @@ pub const ziew_js: [:0]const u8 =
     \\      // Check if AI is available
     \\      available: function() {
     \\        return !!window.__ziew_ai_complete;
+    \\      },
+    \\
+    \\      // Speech-to-text via Whisper
+    \\      // Audio should be base64-encoded PCM f32 16kHz mono
+    \\      transcribe: function(audioBase64) {
+    \\        return new Promise((resolve, reject) => {
+    \\          const id = String(nextId++);
+    \\          pending.set(id, { resolve, reject });
+    \\          if (window.__ziew_ai_transcribe) {
+    \\            window.__ziew_ai_transcribe(JSON.stringify({ id, audio: audioBase64 }));
+    \\          } else {
+    \\            pending.delete(id);
+    \\            reject(new Error('Whisper not available - build with -Dwhisper=true'));
+    \\          }
+    \\        });
+    \\      },
+    \\
+    \\      // Text-to-speech via Piper
+    \\      // Returns a data URL (audio/wav;base64,...) for playback
+    \\      speak: function(text) {
+    \\        return new Promise((resolve, reject) => {
+    \\          const id = String(nextId++);
+    \\          pending.set(id, { resolve, reject });
+    \\          if (window.__ziew_ai_speak) {
+    \\            window.__ziew_ai_speak(JSON.stringify({ id, text: text }));
+    \\          } else {
+    \\            pending.delete(id);
+    \\            reject(new Error('Piper not available - build with -Dpiper=true'));
+    \\          }
+    \\        });
+    \\      },
+    \\
+    \\      // List available TTS voices
+    \\      voices: function() {
+    \\        return new Promise((resolve, reject) => {
+    \\          const id = String(nextId++);
+    \\          pending.set(id, { resolve, reject });
+    \\          if (window.__ziew_ai_voices) {
+    \\            window.__ziew_ai_voices(JSON.stringify({ id }));
+    \\          } else {
+    \\            pending.delete(id);
+    \\            resolve([]); // Return empty array if not available
+    \\          }
+    \\        });
+    \\      },
+    \\
+    \\      // Set the TTS voice by name
+    \\      setVoice: function(voiceName) {
+    \\        return new Promise((resolve, reject) => {
+    \\          const id = String(nextId++);
+    \\          pending.set(id, { resolve, reject });
+    \\          if (window.__ziew_ai_set_voice) {
+    \\            window.__ziew_ai_set_voice(JSON.stringify({ id, voice: voiceName }));
+    \\          } else {
+    \\            pending.delete(id);
+    \\            reject(new Error('Piper not available'));
+    \\          }
+    \\        });
     \\      }
     \\    },
     \\

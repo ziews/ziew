@@ -46,7 +46,7 @@ That's **680x smaller** than Electron.
 - **Tiny binaries** — 220KB hello world, real apps under 2MB
 - **Native webviews** — Uses system WebView (WebKit, Edge WebView2)
 - **No bundled browser** — Unlike Electron's 150MB Chromium
-- **Local AI** — First-class llama.cpp/whisper.cpp bindings (coming soon)
+- **Local AI** — First-class llama.cpp bindings + Piper TTS
 - **Lua scripting** — Optional LuaJIT for custom backend logic (+~300KB)
 - **Cross-compilation** — `zig build -Dtarget=x86_64-windows` just works
 - **Simple toolchain** — Zig is ~40MB, not hundreds
@@ -63,10 +63,11 @@ const data = await ziew.fs.readFile('./config.json');
 // Local AI - runs on device, no API keys
 const summary = await ziew.ai.complete('Summarize this...');
 
-// Stream responses
+// Stream responses with TTS
 for await (const token of ziew.ai.stream(prompt)) {
   output.textContent += token;
 }
+await ziew.ai.speak('Hello world');  // Text-to-speech
 ```
 
 **Need custom logic?** Add Lua scripting (~300KB overhead):
@@ -158,6 +159,8 @@ Total: 1.4 MB (all platforms combined)
 - [x] `ziew.ai.complete()` — text generation (llama.cpp)
 - [x] `ziew.ai.stream()` — streaming tokens
 - [x] JS bridge for `ziew.lua.call()` and `ziew.ai.*`
+- [x] `ziew.ai.speak()` — text-to-speech (Piper)
+- [x] Chatbot example with streaming TTS
 - [ ] `ziew.ai.transcribe()` — speech-to-text (whisper.cpp)
 
 **Future**
