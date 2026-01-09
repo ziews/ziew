@@ -99,7 +99,7 @@ pub fn build(b: *std.Build) void {
     // Plugin: Notifications (libnotify)
     if (enable_notify) {
         if (os == .linux) {
-            lib.linkSystemLibrary("libnotify");
+            lib.linkSystemLibrary("notify");
         }
         lib.root_module.addCMacro("HAS_NOTIFY", "1");
     }
@@ -113,7 +113,7 @@ pub fn build(b: *std.Build) void {
     // Plugin: Keychain (libsecret on Linux)
     if (enable_keychain) {
         if (os == .linux) {
-            lib.linkSystemLibrary("libsecret-1");
+            lib.linkSystemLibrary("secret-1");
         }
         lib.root_module.addCMacro("HAS_KEYCHAIN", "1");
     }
