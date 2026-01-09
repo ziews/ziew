@@ -90,6 +90,19 @@ pub const Window = struct {
             @intFromEnum(SizeHint.none),
         );
 
+        // Enable loading local files (fix CORS for file:// URLs)
+        if (builtin.os.tag == .linux) {
+            const browser_handle = window.getBrowserHandle();
+            if (browser_handle) |ptr| {
+                const webkit_view: *platform.WebKitWebView = @ptrCast(@alignCast(ptr));
+                const settings = platform.webkit_web_view_get_settings(webkit_view);
+                if (settings != null) {
+                    platform.webkit_settings_set_allow_file_access_from_file_urls(settings, 1);
+                    platform.webkit_settings_set_allow_universal_access_from_file_urls(settings, 1);
+                }
+            }
+        }
+
         return window;
     }
 
