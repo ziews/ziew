@@ -7,7 +7,6 @@ pub fn build(b: *std.Build) void {
     // Optional features
     const enable_lua = b.option(bool, "lua", "Enable LuaJIT support (requires libluajit-5.1-dev)") orelse false;
     const enable_ai = b.option(bool, "ai", "Enable AI support via llama.cpp (requires llama.cpp installed)") orelse false;
-    const enable_whisper = b.option(bool, "whisper", "Enable Whisper STT support (requires whisper.cpp)") orelse false;
     const enable_piper = b.option(bool, "piper", "Enable Piper TTS support (uses CLI, no deps)") orelse false;
 
     // Plugin options
@@ -19,11 +18,6 @@ pub fn build(b: *std.Build) void {
     const enable_serial = b.option(bool, "serial", "Enable serial port plugin") orelse false;
     const enable_steamworks = b.option(bool, "steamworks", "Enable Steam integration (requires Steamworks SDK)") orelse false;
     _ = enable_steamworks; // TODO: Link steam_api when enabled
-
-    // Get home directory for local lib/include paths
-    const home = std.process.getEnvVarOwned(b.allocator, "HOME") catch
-        std.process.getEnvVarOwned(b.allocator, "USERPROFILE") catch
-        "/tmp";
 
     // Get the webview dependency
     const webview_dep = b.dependency("webview", .{});
@@ -95,18 +89,6 @@ pub fn build(b: *std.Build) void {
         lib.linkLibC();
         // Define HAS_AI so code can conditionally compile
         lib.root_module.addCMacro("HAS_AI", "1");
-    }
-
-    // Whisper STT support (optional)
-    if (enable_whisper) {
-        // Add local include/lib paths for whisper
-        const whisper_include = b.fmt("{s}/.ziew/include", .{home});
-        const whisper_lib = b.fmt("{s}/.ziew/lib", .{home});
-        lib.addIncludePath(.{ .cwd_relative = whisper_include });
-        lib.addLibraryPath(.{ .cwd_relative = whisper_lib });
-        lib.linkSystemLibrary("whisper");
-        lib.linkLibC();
-        lib.root_module.addCMacro("HAS_WHISPER", "1");
     }
 
     // Piper TTS support (optional - no linking needed, uses CLI)
@@ -263,7 +245,7 @@ pub fn build(b: *std.Build) void {
         const ai_step = b.step("ai", "Run the AI example");
         ai_step.dependOn(&run_ai.step);
 
-        // Chatbot example (webview + AI + optional whisper/piper)
+        // Chatbot example (webview + AI + optional piper)
         const chatbot_exe = b.addExecutable(.{
             .name = "chatbot",
             .root_source_file = b.path("examples/chatbot/main.zig"),
@@ -275,16 +257,6 @@ pub fn build(b: *std.Build) void {
         chatbot_exe.linkLibrary(webview_lib);
         chatbot_exe.linkSystemLibrary("llama");
         chatbot_exe.linkLibC();
-
-        // Add whisper support to chatbot
-        if (enable_whisper) {
-            const whisper_include = b.fmt("{s}/.ziew/include", .{home});
-            const whisper_lib_path = b.fmt("{s}/.ziew/lib", .{home});
-            chatbot_exe.addIncludePath(.{ .cwd_relative = whisper_include });
-            chatbot_exe.addLibraryPath(.{ .cwd_relative = whisper_lib_path });
-            chatbot_exe.linkSystemLibrary("whisper");
-            chatbot_exe.root_module.addCMacro("HAS_WHISPER", "1");
-        }
 
         // Add piper support to chatbot
         if (enable_piper) {

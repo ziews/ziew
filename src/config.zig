@@ -291,7 +291,6 @@ pub const available_plugins = [_]PluginInfo{
     .{ .name = "serial", .description = "Serial port communication", .deps = "none", .category = .input },
     // AI
     .{ .name = "ai", .description = "Local LLM (llama.cpp)", .deps = "llama.cpp", .category = .ai },
-    .{ .name = "whisper", .description = "Speech-to-text", .deps = "whisper.cpp", .category = .ai },
     .{ .name = "piper", .description = "Text-to-speech", .deps = "piper CLI", .category = .ai },
     // Platform
     .{ .name = "steamworks", .description = "Steam integration", .deps = "Steamworks SDK", .category = .platform },
