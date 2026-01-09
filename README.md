@@ -47,7 +47,7 @@ That's **680x smaller** than Electron.
 - **Native webviews** — Uses system WebView (WebKit, Edge WebView2)
 - **No bundled browser** — Unlike Electron's 150MB Chromium
 - **Plugin system** — SQLite, notifications, hotkeys, gamepad, AI, and more
-- **Local AI** — Optional llama.cpp + whisper.cpp + Piper TTS
+- **Local AI** — Optional llama.cpp + Piper TTS
 - **Cross-compilation** — `ziew ship --target=windows` builds for any platform
 - **Simple toolchain** — Zig is ~40MB, not hundreds
 
@@ -93,9 +93,9 @@ ziew build
 | **gamepad** | Game controller input |
 | **serial** | Serial port communication |
 | **ai** | Local LLM (llama.cpp) |
-| **whisper** | Speech-to-text |
 | **piper** | Text-to-speech |
 | **lua** | LuaJIT scripting |
+| **steamworks** | Steam integration |
 
 See [ziew.sh/plugins](https://ziew.sh/plugins) for full documentation.
 
@@ -149,8 +149,14 @@ ziew dev
 ### With Templates
 
 ```bash
-# Game with Phaser
+# 2D game with Phaser
 ziew init mygame --template=phaser
+
+# 2D game with Kaplay
+ziew init mygame --template=kaplay
+
+# 3D app with Three.js
+ziew init myapp --template=three
 
 # With CSS framework
 ziew init myapp --style=pico
