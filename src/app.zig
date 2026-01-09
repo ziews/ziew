@@ -4,9 +4,13 @@ const std = @import("std");
 const webview = @import("webview.zig");
 const bridge = @import("bridge.zig");
 
+/// Global app pointer for callbacks (needed for F12 binding)
+var global_app: ?*App = null;
+
 pub const App = struct {
     window: webview.Window,
     allocator: std.mem.Allocator,
+    debug: bool,
 
     pub const Config = struct {
         title: [:0]const u8 = "Ziew App",
@@ -27,12 +31,33 @@ pub const App = struct {
         var app = App{
             .window = window,
             .allocator = allocator,
+            .debug = config.debug,
         };
 
         // Inject the ziew.js bridge
         try app.window.init(bridge.ziew_js);
 
+        // In debug mode, set up F12 to open dev tools
+        if (config.debug) {
+            global_app = &app;
+            try app.window.bind("__ziew_show_devtools", showDevToolsCallback, null);
+            try app.window.init(
+                \\document.addEventListener('keydown', function(e) {
+                \\  if (e.key === 'F12') {
+                \\    e.preventDefault();
+                \\    window.__ziew_show_devtools();
+                \\  }
+                \\});
+            );
+        }
+
         return app;
+    }
+
+    fn showDevToolsCallback(_: [*c]const u8, _: [*c]const u8, _: ?*anyopaque) callconv(.C) void {
+        if (global_app) |app| {
+            app.showDevTools();
+        }
     }
 
     /// Clean up resources
@@ -78,5 +103,16 @@ pub const App = struct {
     /// Bind a native function to JavaScript
     pub fn bind(self: *App, name: [:0]const u8, callback: webview.Window.BindCallback, arg: ?*anyopaque) !void {
         try self.window.bind(name, callback, arg);
+    }
+
+    /// Open developer tools in a separate window
+    /// Requires debug=true in config
+    pub fn showDevTools(self: *App) void {
+        self.window.showDevTools();
+    }
+
+    /// Set window icon from file path
+    pub fn setIcon(self: *App, path: [:0]const u8) void {
+        self.window.setIcon(path);
     }
 };

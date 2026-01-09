@@ -15,6 +15,14 @@ const c = @cImport({
     @cInclude("webview/webview.h");
 });
 
+// Platform-specific imports for dev tools and window management
+const platform = if (builtin.os.tag == .linux) @cImport({
+    @cInclude("gtk/gtk.h");
+    @cInclude("webkit2/webkit2.h");
+}) else if (builtin.os.tag == .windows) @cImport({
+    // WebView2 headers would go here
+}) else struct {}; // macOS uses Objective-C
+
 /// Webview size hints for setSize
 pub const SizeHint = enum(c_int) {
     none = c.WEBVIEW_HINT_NONE,
@@ -167,6 +175,47 @@ pub const Window = struct {
     /// Returns platform-specific handle (GtkWidget*, NSWindow*, HWND)
     pub fn getNativeHandle(self: Window) ?*anyopaque {
         return c.webview_get_window(self.handle);
+    }
+
+    /// Get the browser controller handle
+    /// Returns WebKitWebView* (GTK), WKWebView* (Cocoa), ICoreWebView2Controller* (Win32)
+    pub fn getBrowserHandle(self: Window) ?*anyopaque {
+        return c.webview_get_native_handle(self.handle, c.WEBVIEW_NATIVE_HANDLE_KIND_BROWSER_CONTROLLER);
+    }
+
+    /// Open developer tools in a separate window (debug mode must be enabled)
+    pub fn showDevTools(self: Window) void {
+        if (builtin.os.tag == .linux) {
+            // Get WebKitWebView handle
+            const webview_ptr = self.getBrowserHandle();
+            if (webview_ptr) |ptr| {
+                const webkit_view: *platform.WebKitWebView = @ptrCast(@alignCast(ptr));
+                const inspector = platform.webkit_web_view_get_inspector(webkit_view);
+                if (inspector != null) {
+                    platform.webkit_web_inspector_show(inspector);
+                }
+            }
+        } else if (builtin.os.tag == .windows) {
+            // TODO: WebView2 OpenDevToolsWindow()
+            // Requires ICoreWebView2 interface
+        } else if (builtin.os.tag == .macos) {
+            // TODO: WKWebView inspector (requires Objective-C)
+        }
+    }
+
+    /// Set window icon from file path
+    pub fn setIcon(self: Window, path: [:0]const u8) void {
+        if (builtin.os.tag == .linux) {
+            const window_ptr = self.getNativeHandle();
+            if (window_ptr) |ptr| {
+                const gtk_window: *platform.GtkWindow = @ptrCast(@alignCast(ptr));
+                _ = platform.gtk_window_set_icon_from_file(gtk_window, path.ptr, null);
+            }
+        } else if (builtin.os.tag == .windows) {
+            // TODO: Set HICON on window
+        } else if (builtin.os.tag == .macos) {
+            // TODO: NSApplication setApplicationIconImage (requires Objective-C)
+        }
     }
 };
 

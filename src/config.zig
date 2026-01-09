@@ -6,6 +6,7 @@
 //! .{
 //!     .name = "myapp",
 //!     .version = "0.1.0",
+//!     .icon = "assets/icon.png",
 //!     .plugins = .{ "sqlite", "notify" },
 //! }
 
@@ -16,9 +17,11 @@ pub const Config = struct {
     allocator: Allocator,
     name: []const u8,
     version: []const u8,
+    icon: ?[]const u8 = null,
     plugins: []const []const u8,
     name_allocated: bool = false,
     version_allocated: bool = false,
+    icon_allocated: bool = false,
 
     const Self = @This();
 
@@ -37,6 +40,11 @@ pub const Config = struct {
         }
         if (self.version_allocated) {
             self.allocator.free(self.version);
+        }
+        if (self.icon_allocated) {
+            if (self.icon) |icon| {
+                self.allocator.free(icon);
+            }
         }
         if (self.plugins.len > 0) {
             for (self.plugins) |plugin_name| {
@@ -75,6 +83,12 @@ pub const Config = struct {
             config.version_allocated = true;
         }
 
+        // Parse .icon = "..."
+        if (findZonStringValue(zon_content, ".icon")) |icon| {
+            config.icon = try allocator.dupe(u8, icon);
+            config.icon_allocated = true;
+        }
+
         // Parse .plugins = .{ ... }
         config.plugins = try parseZonPluginsArray(allocator, zon_content);
 
@@ -91,6 +105,9 @@ pub const Config = struct {
         try writer.writeAll(".{\n");
         try writer.print("    .name = \"{s}\",\n", .{self.name});
         try writer.print("    .version = \"{s}\",\n", .{self.version});
+        if (self.icon) |icon| {
+            try writer.print("    .icon = \"{s}\",\n", .{icon});
+        }
         try writer.writeAll("    .plugins = .{");
 
         if (self.plugins.len > 0) {

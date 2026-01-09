@@ -577,13 +577,39 @@ pub const Cli = struct {
             \\.{{
             \\    .name = "{s}",
             \\    .version = "0.1.0",
+            \\    .icon = "assets/icon.png",
             \\    .plugins = .{{}},
             \\}}
             \\
         , .{name});
     }
 
+    fn copyDefaultIcon(self: *Self, project_dir: []const u8) !void {
+        // Create assets directory
+        const assets_path = try std.fmt.allocPrint(self.allocator, "{s}/assets", .{project_dir});
+        defer self.allocator.free(assets_path);
+
+        std.fs.makeDirAbsolute(assets_path) catch |err| {
+            if (err != error.PathAlreadyExists) return err;
+        };
+
+        // Write embedded icon
+        const icon_path = try std.fmt.allocPrint(self.allocator, "{s}/assets/icon.png", .{project_dir});
+        defer self.allocator.free(icon_path);
+
+        var icon_file = try std.fs.createFileAbsolute(icon_path, .{});
+        defer icon_file.close();
+
+        try icon_file.writeAll(default_icon);
+    }
+
+    // Embedded default Ziew icon (256x256 PNG)
+    const default_icon = @embedFile("assets/icon.png");
+
     fn initDefaultProject(self: *Self, project_dir: []const u8, name: []const u8, name_lower: []const u8, style: ?[]const u8) !void {
+        // Copy default icon
+        try self.copyDefaultIcon(project_dir);
+
         // Create index.html
         const html_path = try std.fmt.allocPrint(self.allocator, "{s}/index.html", .{project_dir});
         defer self.allocator.free(html_path);
@@ -627,6 +653,9 @@ pub const Cli = struct {
     }
 
     fn initFromTemplate(self: *Self, project_dir: []const u8, name: []const u8, name_lower: []const u8, template: []const u8) !void {
+        // Copy default icon
+        try self.copyDefaultIcon(project_dir);
+
         // Get template files based on template name
         const files: []const struct { name: []const u8, content: []const u8 } = if (std.mem.eql(u8, template, "kaplay"))
             &.{
@@ -730,6 +759,14 @@ pub const Cli = struct {
         \\
         \\    var cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
         \\    const cwd = std.fs.cwd().realpath(".", &cwd_buf) catch ".";
+        \\
+        \\    // Set app icon
+        \\    const icon_path = std.fmt.allocPrintZ(allocator, "{s}/assets/icon.png", .{cwd}) catch null;
+        \\    if (icon_path) |path| {
+        \\        defer allocator.free(path);
+        \\        app.setIcon(path);
+        \\    }
+        \\
         \\    const html_path = std.fmt.allocPrintZ(allocator, "file://{s}/index.html", .{cwd}) catch return;
         \\    defer allocator.free(html_path);
         \\
